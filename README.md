@@ -1,12 +1,15 @@
 # Cursor Setup
 
-One-line install for Windows:
+One-line install for Windows (works from CMD or PowerShell):
 
-```powershell
-iex (irm 'https://raw.githubusercontent.com/RallyHereInteractive/cursor-setup/main/web-installer.ps1')
+**From CMD:**
+```cmd
+powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/RallyHereInteractive/cursor-setup/main/install.bat' -OutFile '%TEMP%\cursor-install.bat'; & '%TEMP%\cursor-install.bat'"
 ```
 
-Run this in PowerShell as Administrator. It will:
-- Install Git
-- Install Cursor
-- Set up your development environment
+**From PowerShell:**
+```powershell
+Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/RallyHereInteractive/cursor-setup/main/install.bat' -OutFile "$env:TEMP\cursor-install.bat"; & "$env:TEMP\cursor-install.bat"
+```
+
+**Or simply download and run `install.bat` from this repository.**
