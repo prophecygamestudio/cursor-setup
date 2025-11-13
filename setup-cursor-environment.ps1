@@ -286,7 +286,7 @@ if (Test-Path $CloneDirectory) {
 Write-Host ""
 
 # Step 6: Install MCP dependencies (if needed)
-Write-ColorOutput "Step 6: Checking for MCP dependencies..." "Cyan"
+Write-ColorOutput "Step 6: Checking for nvm and Node.js..." "Cyan"
 
 # Check if nvm is installed
 $nvmInstalled = $false
@@ -382,7 +382,125 @@ if ($nvmInstalled -or (Test-CommandExists "nvm")) {
 }
 Write-Host ""
 
-# Step 7: Final setup instructions
+# Step 7: Install uv and Python 3.11
+Write-ColorOutput "Step 7: Installing uv and Python 3.11..." "Cyan"
+
+# Check if uv is already installed
+$uvInstalled = $false
+if (Test-CommandExists "uv") {
+    Write-ColorOutput "uv is already installed." "Green"
+    $uvVersion = uv --version 2>&1
+    Write-ColorOutput "Current version: $uvVersion" "Gray"
+    $uvInstalled = $true
+} else {
+    Write-ColorOutput "Installing uv..." "Yellow"
+    try {
+        # Install uv using the official installer script
+        # Using the standard uv installation pattern: Invoke-RestMethod pipes to Invoke-Expression
+        Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression
+        
+        # Refresh PATH to include uv
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        
+        # Wait a moment for PATH to propagate
+        Start-Sleep -Seconds 2
+        
+        # Verify uv is now available
+        if (Test-CommandExists "uv") {
+            Write-ColorOutput "uv installed successfully!" "Green"
+            $uvInstalled = $true
+        } else {
+            Write-ColorOutput "Warning: uv installed but not yet available in PATH. You may need to restart your terminal." "Yellow"
+            Write-ColorOutput "Continuing with installation..." "Yellow"
+            $uvInstalled = $true  # Assume it's installed, just not in PATH yet
+        }
+    } catch {
+        Write-ColorOutput "Error installing uv: $_" "Red"
+        Write-ColorOutput "You may need to install uv manually from https://github.com/astral-sh/uv" "Yellow"
+    }
+}
+
+# Install Python 3.11 using uv
+if ($uvInstalled -or (Test-CommandExists "uv")) {
+    # Refresh PATH to ensure uv is available
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+    
+    # Wait a moment for PATH to propagate
+    Start-Sleep -Seconds 2
+    
+    # Check if Python 3.11 is already installed via uv
+    $python311Installed = $false
+    try {
+        if (Test-CommandExists "uv") {
+            # Check installed Python versions
+            $pythonVersions = uv python list 2>&1 | Out-String
+            if ($pythonVersions -like "*3.11*") {
+                Write-ColorOutput "Python 3.11 is already installed via uv." "Green"
+                $python311Installed = $true
+            }
+        }
+    } catch {
+        # If uv command fails, we'll try to install
+    }
+    
+    if (-not $python311Installed) {
+        Write-ColorOutput "Installing Python 3.11 via uv..." "Yellow"
+        try {
+            if (Test-CommandExists "uv") {
+                # Install Python 3.11 (uv will install the latest 3.11.x version)
+                $installResult = uv python install 3.11 2>&1 | Out-String
+                
+                if ($LASTEXITCODE -eq 0) {
+                    Write-ColorOutput "Python 3.11 installed successfully via uv!" "Green"
+                    
+                    # Pin Python 3.11 as the default version
+                    uv python pin 3.11 2>&1 | Out-Null
+                    Write-ColorOutput "Python 3.11 set as default version." "Green"
+                    
+                    # Refresh PATH again
+                    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+                    
+                    # Verify installation
+                    Start-Sleep -Seconds 2
+                    if (Test-CommandExists "python") {
+                        $pythonVersion = python --version 2>&1
+                        Write-ColorOutput "Python version: $pythonVersion" "Gray"
+                    } else {
+                        Write-ColorOutput "Note: Python installed via uv. Use 'uv python pin 3.11' or 'uv run python' to use it." "Yellow"
+                    }
+                } else {
+                    Write-ColorOutput "Failed to install Python 3.11 via uv. Exit code: $LASTEXITCODE" "Red"
+                    Write-ColorOutput "Output: $installResult" "Yellow"
+                }
+            } else {
+                Write-ColorOutput "uv is not available in PATH. You may need to restart your terminal." "Yellow"
+            }
+        } catch {
+            Write-ColorOutput "Error installing Python 3.11 via uv: $_" "Red"
+            Write-ColorOutput "You may need to install Python manually or restart your terminal and try again." "Yellow"
+        }
+    } else {
+        # Python 3.11 is installed, verify it's pinned
+        try {
+            if (Test-CommandExists "uv") {
+                $pinnedVersion = uv python pin 2>&1 | Out-String
+                if ($pinnedVersion -notlike "*3.11*") {
+                    Write-ColorOutput "Setting Python 3.11 as default version..." "Yellow"
+                    uv python pin 3.11 2>&1 | Out-Null
+                    Write-ColorOutput "Python 3.11 set as default version." "Green"
+                }
+            }
+        } catch {
+            Write-ColorOutput "Could not verify Python 3.11 default version setting." "Yellow"
+        }
+    }
+} else {
+    Write-ColorOutput "uv is not available. Python 3.11 installation skipped." "Yellow"
+    Write-ColorOutput "You can install Python manually or install uv and run this script again." "Yellow"
+}
+Write-Host ""
+
+# Step 8: Final setup instructions
 Write-ColorOutput "============================================" "Cyan"
 Write-ColorOutput "Setup Complete!" "Green"
 Write-ColorOutput "============================================" "Cyan"
@@ -393,6 +511,7 @@ Write-ColorOutput "1. Open Cursor from the Start Menu or Desktop" "White"
 Write-ColorOutput "2. Open the cloned repository folder: $CloneDirectory" "White"
 Write-ColorOutput "3. Review the .cursor folder for rules and configuration" "White"
 Write-ColorOutput "4. Install any additional MCP servers as needed" "White"
+Write-ColorOutput "5. If uv/Python was just installed, restart your terminal for PATH changes to take effect" "White"
 Write-Host ""
 
 # Launch Cursor if installed
