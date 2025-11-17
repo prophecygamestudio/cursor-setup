@@ -1,15 +1,50 @@
 # Cursor Setup Script - Installs Git, Cursor, and development tools
+# Run with: iex (irm 'https://raw.githubusercontent.com/RallyHereInteractive/cursor-setup/main/install.ps1')
 
 param(
     [Parameter(Mandatory=$false)]
     [string]$RepositoryUrl = "https://github.com/RallyHereInteractive/cursor-setup.git",
     
     [Parameter(Mandatory=$false)]
-    [string]$CloneDirectory = "$env:USERPROFILE\cursor-studio-setup"
+    [string]$CloneDirectory = "",
+    
+    [Parameter(Mandatory=$false)]
+    [switch]$Wait
 )
 
 # Set execution policy for the current process
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process -Force
+
+# Navigate to Documents folder and set default clone directory if not provided
+$documentsPath = [Environment]::GetFolderPath("MyDocuments")
+Set-Location $documentsPath
+
+if ([string]::IsNullOrEmpty($CloneDirectory)) {
+    $CloneDirectory = "$documentsPath\cursor-setup"
+}
+
+# Check if running as Administrator and request elevation if needed
+$currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+$isAdmin = $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+if (-not $isAdmin) {
+    Write-Host "Requesting administrator privileges..." -ForegroundColor Yellow
+    try {
+        $scriptPath = $MyInvocation.MyCommand.Path
+        if (-not $scriptPath) {
+            # If running from web, download to temp and run elevated
+            $tempScript = "$env:TEMP\cursor-install.ps1"
+            Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/RallyHereInteractive/cursor-setup/main/install.ps1' -OutFile $tempScript -UseBasicParsing
+            Start-Process powershell.exe -Verb RunAs -ArgumentList "-ExecutionPolicy Bypass -File `"$tempScript`""
+            exit
+        } else {
+            Start-Process powershell.exe -Verb RunAs -ArgumentList "-ExecutionPolicy Bypass -File `"$scriptPath`""
+            exit
+        }
+    } catch {
+        Write-Host "Could not elevate privileges. Continuing without admin rights (some features may be limited)." -ForegroundColor Yellow
+    }
+}
 
 # Set error action preference to continue on errors (don't stop script execution)
 $ErrorActionPreference = 'Continue'
@@ -28,10 +63,7 @@ Write-ColorOutput "Cursor Setup - Installing Components..." "Cyan"
 Write-ColorOutput "============================================" "Cyan"
 Write-Host ""
 
-# Check if script is running as Administrator
-$currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
-$isAdmin = $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-
+# Note about admin privileges (already checked above)
 if (-not $isAdmin) {
     Write-ColorOutput "Note: Running without Administrator privileges. Some features may be limited." "Yellow"
     Write-Host ""
@@ -563,3 +595,11 @@ if (Test-Path $cursorPath) {
 
 Write-Host ""
 Write-ColorOutput "Setup complete!" "Green"
+
+# Wait for user input if -Wait flag is set
+if ($Wait) {
+    Write-Host ""
+    Write-ColorOutput "Press Enter to exit..." "Gray"
+    $null = Read-Host
+}
+
