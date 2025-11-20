@@ -9,6 +9,9 @@ param(
     [string]$CloneDirectory = "",
     
     [Parameter(Mandatory=$false)]
+    [string]$Branch = "main",
+    
+    [Parameter(Mandatory=$false)]
     [switch]$NoWait
 )
 
@@ -31,16 +34,45 @@ if (-not $isAdmin) {
     Write-Host "Requesting administrator privileges..." -ForegroundColor Yellow
     try {
         $scriptPath = $MyInvocation.MyCommand.Path
+        
+        # Build argument list with all parameters
+        $argList = @("-ExecutionPolicy", "Bypass", "-File")
+        
         if (-not $scriptPath) {
             # If running from web, download to temp and run elevated
+            # Extract repository path from RepositoryUrl to construct the raw GitHub URL
             $tempScript = "$env:TEMP\cursor-install.ps1"
-            Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/RallyHereInteractive/cursor-setup/main/install.ps1' -OutFile $tempScript -UseBasicParsing
-            Start-Process powershell.exe -Verb RunAs -ArgumentList "-ExecutionPolicy Bypass -File `"$tempScript`""
-            exit
+            if ($RepositoryUrl -match 'github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$') {
+                $repoPath = $matches[1]
+                $downloadUrl = "https://raw.githubusercontent.com/$repoPath/$Branch/install.ps1"
+            } else {
+                # Fallback to default if URL format is unexpected
+                $downloadUrl = "https://raw.githubusercontent.com/RallyHereInteractive/cursor-setup/$Branch/install.ps1"
+            }
+            Invoke-WebRequest -Uri $downloadUrl -OutFile $tempScript -UseBasicParsing
+            $argList += "`"$tempScript`""
         } else {
-            Start-Process powershell.exe -Verb RunAs -ArgumentList "-ExecutionPolicy Bypass -File `"$scriptPath`""
-            exit
+            $argList += "`"$scriptPath`""
         }
+        
+        # Always pass all parameters to ensure they're preserved during elevation
+        # Escape quotes in parameter values
+        $escapedRepoUrl = $RepositoryUrl -replace '"', '`"'
+        $escapedCloneDir = $CloneDirectory -replace '"', '`"'
+        $escapedBranch = $Branch -replace '"', '`"'
+        
+        $argList += "-RepositoryUrl", "`"$escapedRepoUrl`""
+        if (-not [string]::IsNullOrEmpty($CloneDirectory)) {
+            $argList += "-CloneDirectory", "`"$escapedCloneDir`""
+        }
+        $argList += "-Branch", "`"$escapedBranch`""
+        if ($NoWait) {
+            $argList += "-NoWait"
+        }
+        
+        $argString = $argList -join " "
+        Start-Process powershell.exe -Verb RunAs -ArgumentList $argString
+        exit
     } catch {
         Write-Host "Could not elevate privileges. Continuing without admin rights (some features may be limited)." -ForegroundColor Yellow
     }
@@ -184,16 +216,87 @@ if ($gitInstalled -or (Test-CommandExists "git")) {
     if (Test-Path $CloneDirectory) {
         Write-ColorOutput "Updating existing repository..." "Yellow"
         Push-Location $CloneDirectory
-        git reset --hard 2>$null
-        git pull origin main 2>$null
+        try {
+            # Fetch all branches from remote
+            git fetch origin 2>$null
+            
+            # Try to checkout the branch
+            # First, check if branch exists locally
+            $localBranch = git branch --list $Branch 2>$null
+            $remoteBranch = git branch -r --list "origin/$Branch" 2>$null
+            
+            if ($remoteBranch) {
+                # Remote branch exists
+                if ($localBranch) {
+                    # Local branch exists, checkout and update
+                    git checkout $Branch 2>$null
+                    git reset --hard origin/$Branch 2>$null
+                    Write-ColorOutput "Checked out branch '$Branch' and updated to latest" "Green"
+                } else {
+                    # Local branch doesn't exist, create tracking branch
+                    git checkout -b $Branch origin/$Branch 2>$null
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-ColorOutput "Created local branch '$Branch' tracking origin/$Branch" "Green"
+                    } else {
+                        Write-ColorOutput "Failed to create branch '$Branch'" "Red"
+                    }
+                }
+            } elseif ($localBranch) {
+                # Local branch exists but no remote, just checkout
+                git checkout $Branch 2>$null
+                Write-ColorOutput "Checked out local branch '$Branch' (no remote tracking)" "Yellow"
+            } else {
+                # Branch doesn't exist, stay on current branch and pull
+                Write-ColorOutput "Branch '$Branch' not found, staying on current branch" "Yellow"
+                git pull 2>$null
+            }
+        } catch {
+            Write-ColorOutput "Error updating repository: $_" "Red"
+        }
         Pop-Location
     }
     
     if (-not (Test-Path $CloneDirectory)) {
         try {
-            Write-ColorOutput "Cloning from $RepositoryUrl..." "Yellow"
-            git clone $RepositoryUrl $CloneDirectory
-            Write-ColorOutput "Repository cloned successfully!" "Green"
+            Write-ColorOutput "Cloning from $RepositoryUrl (branch: $Branch)..." "Yellow"
+            # Try cloning with the specific branch
+            git clone -b $Branch $RepositoryUrl $CloneDirectory 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                # If branch doesn't exist, try cloning default branch and then checking out
+                Write-ColorOutput "Branch '$Branch' not found, cloning default branch..." "Yellow"
+                git clone $RepositoryUrl $CloneDirectory 2>&1 | Out-Null
+                if ($LASTEXITCODE -eq 0) {
+                    Push-Location $CloneDirectory
+                    # Fetch all branches
+                    git fetch origin 2>$null
+                    # Check if the requested branch exists on remote
+                    $remoteBranch = git branch -r --list "origin/$Branch" 2>$null
+                    if ($remoteBranch) {
+                        # Branch exists on remote, checkout and track it
+                        git checkout -b $Branch origin/$Branch 2>$null
+                        if ($LASTEXITCODE -eq 0) {
+                            Write-ColorOutput "Checked out branch '$Branch'" "Green"
+                        } else {
+                            Write-ColorOutput "Failed to checkout branch '$Branch'" "Red"
+                        }
+                    } else {
+                        Write-ColorOutput "Branch '$Branch' does not exist on remote, staying on default branch" "Yellow"
+                    }
+                    Pop-Location
+                } else {
+                    Write-ColorOutput "Failed to clone repository" "Red"
+                }
+            } else {
+                # Verify we're on the correct branch
+                Push-Location $CloneDirectory
+                $currentBranch = git rev-parse --abbrev-ref HEAD 2>$null
+                if ($currentBranch -ne $Branch) {
+                    Write-ColorOutput "Verifying branch checkout..." "Yellow"
+                    git checkout $Branch 2>$null
+                }
+                Pop-Location
+                Write-ColorOutput "Repository cloned successfully on branch '$Branch'!" "Green"
+            }
         } catch {
             Write-ColorOutput "Failed to clone repository: $_" "Red"
         }
