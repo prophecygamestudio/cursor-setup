@@ -1,9 +1,9 @@
 # Cursor Setup Script - Installs Git, Cursor, and development tools
-# Run with: iex (irm 'https://raw.githubusercontent.com/RallyHereInteractive/cursor-setup/main/install.ps1')
+# Run with: iex (irm 'https://raw.githubusercontent.com/prophecygamestudio/cursor-setup/main/install.ps1')
 
 param(
     [Parameter(Mandatory=$false)]
-    [string]$RepositoryUrl = "https://github.com/RallyHereInteractive/cursor-setup.git",
+    [string]$RepositoryUrl = "https://github.com/prophecygamestudio/cursor-setup.git",
     
     [Parameter(Mandatory=$false)]
     [string]$CloneDirectory = "",
@@ -47,7 +47,7 @@ if (-not $isAdmin) {
                 $downloadUrl = "https://raw.githubusercontent.com/$repoPath/$Branch/install.ps1"
             } else {
                 # Fallback to default if URL format is unexpected
-                $downloadUrl = "https://raw.githubusercontent.com/RallyHereInteractive/cursor-setup/$Branch/install.ps1"
+                $downloadUrl = "https://raw.githubusercontent.com/prophecygamestudio/cursor-setup/$Branch/install.ps1"
             }
             Invoke-WebRequest -Uri $downloadUrl -OutFile $tempScript -UseBasicParsing
             $argList += "`"$tempScript`""
