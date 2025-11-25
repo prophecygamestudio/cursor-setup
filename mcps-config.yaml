@@ -18,7 +18,7 @@ servers:
       comfyui_host: sparky1.hirezcorp.com
 
   - name: godot-mcp
-    enabled: true
+    enabled: false
     buildCommands:
       - npm install
       - npm run build
