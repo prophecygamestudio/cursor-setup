@@ -101,6 +101,9 @@ if (-not $isAdmin) {
     Write-Host ""
 }
 
+# Initialize step counter
+$stepNumber = 0
+
 # Function to check if a command exists
 function Test-CommandExists {
     param([string]$Command)
@@ -135,8 +138,9 @@ function Install-WithWinget {
     }
 }
 
-# Step 1: Check and install winget if necessary
-Write-ColorOutput "Step 1: Checking for Windows Package Manager (winget)..." "Cyan"
+# Step: Check and install winget if necessary
+$stepNumber++
+Write-ColorOutput "Step ${stepNumber}: Checking for Windows Package Manager (winget)..." "Cyan"
 if (-not (Test-CommandExists "winget")) {
     Write-ColorOutput "Winget not found. Please install App Installer from the Microsoft Store." "Red"
     Write-ColorOutput "Opening Microsoft Store..." "Yellow"
@@ -152,8 +156,9 @@ if (-not (Test-CommandExists "winget")) {
 Write-ColorOutput "Winget is available!" "Green"
 Write-Host ""
 
-# Step 2: Install Git
-Write-ColorOutput "Step 2: Installing Git..." "Cyan"
+# Step: Install Git
+$stepNumber++
+Write-ColorOutput "Step ${stepNumber}: Installing Git..." "Cyan"
 $gitInstalled = $false
 if (Test-CommandExists "git") {
     Write-ColorOutput "Git is already installed." "Yellow"
@@ -169,8 +174,9 @@ if (Test-CommandExists "git") {
 }
 Write-Host ""
 
-# Step 3: Install GitHub CLI
-Write-ColorOutput "Step 3: Installing GitHub CLI..." "Cyan"
+# Step: Install GitHub CLI
+$stepNumber++
+Write-ColorOutput "Step ${stepNumber}: Installing GitHub CLI..." "Cyan"
 $ghInstalled = $false
 if (Test-CommandExists "gh") {
     Write-ColorOutput "GitHub CLI is already installed." "Yellow"
@@ -186,12 +192,17 @@ if (Test-CommandExists "gh") {
 }
 Write-Host ""
 
-# Step 4: Install Cursor
-Write-ColorOutput "Step 4: Installing Cursor..." "Cyan"
+# Step: Install IDEs
+$stepNumber++
+Write-ColorOutput "Step ${stepNumber}: Installing IDEs..." "Cyan"
+Write-Host ""
+
+# Install Cursor
+Write-ColorOutput "  Installing Cursor..." "Yellow"
 $cursorPath = "$env:LOCALAPPDATA\Programs\cursor\Cursor.exe"
 $cursorInstalled = $false
 if (Test-Path $cursorPath) {
-    Write-ColorOutput "Cursor is already installed." "Yellow"
+    Write-ColorOutput "  Cursor is already installed." "Yellow"
     $cursorInstalled = $true
 } else {
     $cursorInstalled = Install-WithWinget "Anysphere.Cursor" "Cursor"
@@ -202,16 +213,116 @@ if (Test-Path $cursorPath) {
         Start-Sleep -Seconds 2
         # Verify installation
         if (Test-Path $cursorPath) {
-            Write-ColorOutput "Cursor installation verified!" "Green"
+            Write-ColorOutput "  Cursor installation verified!" "Green"
         } else {
-            Write-ColorOutput "Note: Cursor may be installed but path verification failed. Try launching from Start Menu." "Yellow"
+            Write-ColorOutput "  Note: Cursor may be installed but path verification failed. Try launching from Start Menu." "Yellow"
         }
     }
 }
 Write-Host ""
 
-# Step 5: Clone the repository
-Write-ColorOutput "Step 5: Cloning studio configuration repository..." "Cyan"
+# Install Visual Studio Code
+Write-ColorOutput "  Installing Visual Studio Code..." "Yellow"
+$vscodePath = "$env:LOCALAPPDATA\Programs\Microsoft VS Code\Code.exe"
+$vscodeInstalled = $false
+if (Test-Path $vscodePath) {
+    Write-ColorOutput "  Visual Studio Code is already installed." "Yellow"
+    $vscodeInstalled = $true
+} else {
+    $vscodeInstalled = Install-WithWinget "Microsoft.VisualStudioCode" "Visual Studio Code"
+    if ($vscodeInstalled) {
+        # Refresh PATH
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        # Wait a moment for installation to complete
+        Start-Sleep -Seconds 2
+        # Verify installation
+        if (Test-Path $vscodePath) {
+            Write-ColorOutput "  Visual Studio Code installation verified!" "Green"
+        } else {
+            Write-ColorOutput "  Note: Visual Studio Code may be installed but path verification failed. Try launching from Start Menu." "Yellow"
+        }
+    }
+}
+Write-Host ""
+
+# Step: Install IDE extensions
+$stepNumber++
+Write-ColorOutput "Step ${stepNumber}: Installing IDE extensions..." "Cyan"
+$extensions = @(
+    "geequlim.godot-tools"
+)
+
+# Install extensions for Cursor
+if ($cursorInstalled -or (Test-Path $cursorPath)) {
+    Write-ColorOutput "  Installing extensions for Cursor..." "Yellow"
+    if (Test-CommandExists "cursor") {
+        try {
+            # Get list of installed extensions once
+            $installedExtensions = cursor --list-extensions 2>&1
+            
+            foreach ($extensionId in $extensions) {
+                if ($installedExtensions -like "*$extensionId*") {
+                    Write-ColorOutput "    Extension '$extensionId' is already installed in Cursor." "Green"
+                } else {
+                    Write-ColorOutput "    Installing '$extensionId' in Cursor..." "Yellow"
+                    $installOutput = cursor --install-extension $extensionId --force 2>&1
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-ColorOutput "    Extension '$extensionId' installed successfully in Cursor!" "Green"
+                    } else {
+                        Write-ColorOutput "    Warning: Failed to install extension '$extensionId' in Cursor. Exit code: $LASTEXITCODE" "Yellow"
+                        Write-ColorOutput "    Output: $installOutput" "Gray"
+                    }
+                }
+            }
+        } catch {
+            Write-ColorOutput "  Warning: Could not install extensions in Cursor: $_" "Yellow"
+            Write-ColorOutput "  You may need to install them manually from the Cursor extension marketplace." "Yellow"
+        }
+    } else {
+        Write-ColorOutput "  Warning: 'cursor' command not found in PATH. You may need to restart your terminal or install the extensions manually." "Yellow"
+    }
+} else {
+    Write-ColorOutput "  Cursor is not installed, skipping extension installation." "Gray"
+}
+Write-Host ""
+
+# Install extensions for Visual Studio Code
+if ($vscodeInstalled -or (Test-Path $vscodePath)) {
+    Write-ColorOutput "  Installing extensions for Visual Studio Code..." "Yellow"
+    if (Test-CommandExists "code") {
+        try {
+            # Get list of installed extensions once
+            $installedExtensions = code --list-extensions 2>&1
+            
+            foreach ($extensionId in $extensions) {
+                if ($installedExtensions -like "*$extensionId*") {
+                    Write-ColorOutput "    Extension '$extensionId' is already installed in Visual Studio Code." "Green"
+                } else {
+                    Write-ColorOutput "    Installing '$extensionId' in Visual Studio Code..." "Yellow"
+                    $installOutput = code --install-extension $extensionId --force 2>&1
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-ColorOutput "    Extension '$extensionId' installed successfully in Visual Studio Code!" "Green"
+                    } else {
+                        Write-ColorOutput "    Warning: Failed to install extension '$extensionId' in Visual Studio Code. Exit code: $LASTEXITCODE" "Yellow"
+                        Write-ColorOutput "    Output: $installOutput" "Gray"
+                    }
+                }
+            }
+        } catch {
+            Write-ColorOutput "  Warning: Could not install extensions in Visual Studio Code: $_" "Yellow"
+            Write-ColorOutput "  You may need to install them manually from the Visual Studio Code extension marketplace." "Yellow"
+        }
+    } else {
+        Write-ColorOutput "  Warning: 'code' command not found in PATH. You may need to restart your terminal or install the extensions manually." "Yellow"
+    }
+} else {
+    Write-ColorOutput "  Visual Studio Code is not installed, skipping extension installation." "Gray"
+}
+Write-Host ""
+
+# Step: Clone the repository
+$stepNumber++
+Write-ColorOutput "Step ${stepNumber}: Cloning studio configuration repository..." "Cyan"
 if ($gitInstalled -or (Test-CommandExists "git")) {
     if (Test-Path $CloneDirectory) {
         Write-ColorOutput "Updating existing repository..." "Yellow"
@@ -355,8 +466,9 @@ if ($gitInstalled -or (Test-CommandExists "git")) {
 }
 Write-Host ""
 
-# Step 5.5: Install yq for YAML processing
-Write-ColorOutput "Step 5.5: Installing yq (YAML processor)..." "Cyan"
+# Step: Install yq for YAML processing
+$stepNumber++
+Write-ColorOutput "Step ${stepNumber}: Installing yq (YAML processor)..." "Cyan"
 $yqInstalled = $false
 if (Test-CommandExists "yq") {
     Write-ColorOutput "yq is already installed." "Green"
@@ -514,8 +626,9 @@ function Clone-CustomMCPs {
     return $mcpList
 }
 
-# Step 6: Clone custom MCPs
-Write-ColorOutput "Step 6: Cloning custom MCP servers..." "Cyan"
+# Step: Clone custom MCPs
+$stepNumber++
+Write-ColorOutput "Step ${stepNumber}: Cloning custom MCP servers..." "Cyan"
 $documentsPath = [Environment]::GetFolderPath("MyDocuments")
 $mcpBaseDirectory = "$documentsPath\gamedev-tools\mcp"
 # Try unified config first, fall back to legacy mcps.yaml
@@ -602,8 +715,9 @@ function Build-CustomMCPs {
     }
 }
 
-# Step 7: Build custom MCPs
-Write-ColorOutput "Step 7: Building custom MCP servers..." "Cyan"
+# Step: Build custom MCPs
+$stepNumber++
+Write-ColorOutput "Step ${stepNumber}: Building custom MCP servers..." "Cyan"
 if ($customMcps.Count -gt 0) {
     Build-CustomMCPs -McpList $customMcps
     Write-ColorOutput "Build process completed for custom MCPs" "Green"
@@ -1236,8 +1350,9 @@ function Merge-MCPConfig {
     }
 }
 
-# Step 8: Set up Cursor configuration
-Write-ColorOutput "Step 8: Setting up Cursor configuration..." "Cyan"
+# Step: Set up Cursor configuration
+$stepNumber++
+Write-ColorOutput "Step ${stepNumber}: Setting up Cursor configuration..." "Cyan"
 try {
     $cursorConfigPath = "$env:APPDATA\Cursor\User"
 
@@ -1360,8 +1475,9 @@ try {
 }
 Write-Host ""
 
-# Step 9: Install MCP dependencies (if needed)
-Write-ColorOutput "Step 9: Checking for nvm and Node.js..." "Cyan"
+# Step: Install MCP dependencies (if needed)
+$stepNumber++
+Write-ColorOutput "Step ${stepNumber}: Checking for nvm and Node.js..." "Cyan"
 try {
     # Check if nvm is installed
     $nvmInstalled = $false
@@ -1461,8 +1577,9 @@ try {
 }
 Write-Host ""
 
-# Step 10: Install Godot
-Write-ColorOutput "Step 10: Installing Godot Game Engine..." "Cyan"
+# Step: Install Godot
+$stepNumber++
+Write-ColorOutput "Step ${stepNumber}: Installing Godot Game Engine..." "Cyan"
 try {
     $godotPath = "C:\Program Files\Godot\Godot.exe"
     $godotInstalled = $false
@@ -1635,8 +1752,9 @@ try {
 }
 Write-Host ""
 
-# Step 11: Install uv and Python 3.11
-Write-ColorOutput "Step 11: Installing uv and Python 3.11..." "Cyan"
+# Step: Install uv and Python 3.11
+$stepNumber++
+Write-ColorOutput "Step ${stepNumber}: Installing uv and Python 3.11..." "Cyan"
 try {
     # Check if uv is already installed
     $uvInstalled = $false
@@ -1757,7 +1875,8 @@ try {
 }
 Write-Host ""
 
-# Step 12: Final setup instructions
+# Step: Final setup instructions
+$stepNumber++
 Write-ColorOutput "============================================" "Cyan"
 Write-ColorOutput "Setup Complete!" "Green"
 Write-ColorOutput "============================================" "Cyan"
