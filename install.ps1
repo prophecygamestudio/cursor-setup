@@ -522,7 +522,7 @@ if (Test-CommandExists "yq") {
 Write-Host ""
 
 # Function to clone custom MCPs from YAML configuration
-function Clone-CustomMCPs {
+function Copy-CustomMCPs {
     param(
         [string]$ConfigPath,
         [string]$BaseMcpDirectory
@@ -639,7 +639,7 @@ if (-not (Test-Path $customMcpsConfigPath)) {
 
 $customMcps = @()
 if (Test-Path $CloneDirectory) {
-    $customMcps = Clone-CustomMCPs -ConfigPath $customMcpsConfigPath -BaseMcpDirectory $mcpBaseDirectory
+    $customMcps = Copy-CustomMCPs -ConfigPath $customMcpsConfigPath -BaseMcpDirectory $mcpBaseDirectory
     if ($customMcps.Count -gt 0) {
         Write-ColorOutput "Cloned $($customMcps.Count) custom MCP server(s)" "Green"
     } else {
@@ -727,7 +727,7 @@ if ($customMcps.Count -gt 0) {
 Write-Host ""
 
 # Function to normalize paths in MCP configuration
-function Normalize-MCPPaths {
+function Convert-MCPPaths {
     param(
         [PSCustomObject]$McpServerConfig
     )
@@ -740,7 +740,7 @@ function Normalize-MCPPaths {
     $homePath = $env:USERPROFILE
     
     # Helper function to normalize a single path string
-    function Normalize-PathString {
+    function Convert-PathString {
         param([string]$Path)
         
         if ([string]::IsNullOrEmpty($Path)) {
@@ -769,7 +769,7 @@ function Normalize-MCPPaths {
     if ($McpServerConfig.PSObject.Properties.Name -contains "command") {
         $command = $McpServerConfig.command
         if ($command -is [string]) {
-            $McpServerConfig.command = Normalize-PathString -Path $command
+            $McpServerConfig.command = Convert-PathString -Path $command
         }
     }
     
@@ -779,7 +779,7 @@ function Normalize-MCPPaths {
         if ($mcpArgs -is [Array]) {
             for ($i = 0; $i -lt $mcpArgs.Length; $i++) {
                 if ($mcpArgs[$i] -is [string]) {
-                    $mcpArgs[$i] = Normalize-PathString -Path $mcpArgs[$i]
+                    $mcpArgs[$i] = Convert-PathString -Path $mcpArgs[$i]
                 }
             }
             $McpServerConfig.args = $mcpArgs
@@ -860,7 +860,7 @@ function Convert-MCPToCursorJson {
                 
                 # Normalize paths in the config (only for command-based configs)
                 $serverConfigObj = [PSCustomObject]$serverConfig
-                $normalizedConfig = Normalize-MCPPaths -McpServerConfig $serverConfigObj
+                $normalizedConfig = Convert-MCPPaths -McpServerConfig $serverConfigObj
             } else {
                 # No command or url, skip this server
                 Write-ColorOutput "  Warning: Server '$serverName' has neither 'command' nor 'url', skipping" "Yellow"
@@ -1140,7 +1140,7 @@ function Merge-CodexTomlConfig {
 }
 
 # Function to migrate legacy MCP configs to unified format
-function Migrate-LegacyMCPConfig {
+function Update-LegacyMCPConfig {
     param(
         [string]$CloneDirectory
     )
@@ -1311,7 +1311,7 @@ function Merge-MCPConfig {
                 foreach ($serverName in $newContent.mcpServers.PSObject.Properties.Name) {
                     if (-not $mergedServers.ContainsKey($serverName)) {
                         # Normalize paths before adding
-                        $normalizedConfig = Normalize-MCPPaths -McpServerConfig $newContent.mcpServers.$serverName
+                        $normalizedConfig = Convert-MCPPaths -McpServerConfig $newContent.mcpServers.$serverName
                         $mergedServers[$serverName] = $normalizedConfig
                         $addedCount++
                         Write-ColorOutput "  Added MCP server: $serverName" "Green"
@@ -1387,7 +1387,7 @@ try {
         
         # Set up MCP configuration (merge, don't overwrite)
         # Try to migrate legacy configs first
-        Migrate-LegacyMCPConfig -CloneDirectory $CloneDirectory | Out-Null
+        Update-LegacyMCPConfig -CloneDirectory $CloneDirectory | Out-Null
         
         # Unified MCP config location
         $unifiedMcpConfigPath = "$CloneDirectory\mcps-config.yaml"
