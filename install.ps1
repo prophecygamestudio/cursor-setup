@@ -4,13 +4,13 @@
 param(
     [Parameter(Mandatory=$false)]
     [string]$RepositoryUrl = "https://github.com/prophecygamestudio/cursor-setup.git",
-    
+
     [Parameter(Mandatory=$false)]
     [string]$CloneDirectory = "",
-    
+
     [Parameter(Mandatory=$false)]
     [string]$Branch = "main",
-    
+
     [Parameter(Mandatory=$false)]
     [switch]$NoWait
 )
@@ -34,10 +34,10 @@ if (-not $isAdmin) {
     Write-Host "Requesting administrator privileges..." -ForegroundColor Yellow
     try {
         $scriptPath = $MyInvocation.MyCommand.Path
-        
+
         # Build argument list with all parameters
         $argList = @("-ExecutionPolicy", "Bypass", "-File")
-        
+
         if (-not $scriptPath) {
             # If running from web, download to temp and run elevated
             # Extract repository path from RepositoryUrl to construct the raw GitHub URL
@@ -54,13 +54,13 @@ if (-not $isAdmin) {
         } else {
             $argList += "`"$scriptPath`""
         }
-        
+
         # Always pass all parameters to ensure they're preserved during elevation
         # Escape quotes in parameter values
         $escapedRepoUrl = $RepositoryUrl -replace '"', '`"'
         $escapedCloneDir = $CloneDirectory -replace '"', '`"'
         $escapedBranch = $Branch -replace '"', '`"'
-        
+
         $argList += "-RepositoryUrl", "`"$escapedRepoUrl`""
         if (-not [string]::IsNullOrEmpty($CloneDirectory)) {
             $argList += "-CloneDirectory", "`"$escapedCloneDir`""
@@ -69,7 +69,7 @@ if (-not $isAdmin) {
         if ($NoWait) {
             $argList += "-NoWait"
         }
-        
+
         $argString = $argList -join " "
         Start-Process powershell.exe -Verb RunAs -ArgumentList $argString
         exit
@@ -117,9 +117,9 @@ function Install-WithWinget {
         [string]$PackageId,
         [string]$DisplayName
     )
-    
+
     Write-ColorOutput "Installing $DisplayName..." "Green"
-    
+
     try {
         winget install --id $PackageId --silent --accept-package-agreements --accept-source-agreements | Out-Null
         if ($LASTEXITCODE -eq 0) {
@@ -147,7 +147,7 @@ if (-not (Test-CommandExists "winget")) {
     Start-Process "ms-windows-store://pdp/?ProductId=9NBLGGH4NNS1"
     Write-Host "Press any key once you've installed App Installer..."
     $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-    
+
     if (-not (Test-CommandExists "winget")) {
         Write-ColorOutput "Winget still not found. Cannot continue." "Red"
         exit 1
@@ -245,11 +245,35 @@ if (Test-Path $vscodePath) {
 }
 Write-Host ""
 
+# Install Claude (Desktop App)
+Write-ColorOutput "  Installing Claude Desktop..." "Yellow"
+$claudeInstalled = Install-WithWinget "Anthropic.Claude" "Claude Desktop"
+if ($claudeInstalled) {
+    # Refresh PATH
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+}
+Write-Host ""
+
+# Install Claude Code (CLI)
+Write-ColorOutput "  Installing Claude Code..." "Yellow"
+$claudeCodeInstalled = Install-WithWinget "Anthropic.ClaudeCode" "Claude Code"
+if ($claudeCodeInstalled) {
+    # Refresh PATH
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+    Start-Sleep -Seconds 2
+    if (Test-CommandExists "claude") {
+        $claudeVersion = claude --version 2>&1
+        Write-ColorOutput "  Version: $claudeVersion" "Gray"
+    }
+}
+Write-Host ""
+
 # Step: Install IDE extensions
 $stepNumber++
 Write-ColorOutput "Step ${stepNumber}: Installing IDE extensions..." "Cyan"
 $extensions = @(
-    "geequlim.godot-tools"
+    "geequlim.godot-tools",
+    "anthropic.claude-code"
 )
 
 # Install extensions for Cursor
@@ -259,7 +283,7 @@ if ($cursorInstalled -or (Test-Path $cursorPath)) {
         try {
             # Get list of installed extensions once
             $installedExtensions = cursor --list-extensions 2>&1
-            
+
             foreach ($extensionId in $extensions) {
                 if ($installedExtensions -like "*$extensionId*") {
                     Write-ColorOutput "    Extension '$extensionId' is already installed in Cursor." "Green"
@@ -293,7 +317,7 @@ if ($vscodeInstalled -or (Test-Path $vscodePath)) {
         try {
             # Get list of installed extensions once
             $installedExtensions = code --list-extensions 2>&1
-            
+
             foreach ($extensionId in $extensions) {
                 if ($installedExtensions -like "*$extensionId*") {
                     Write-ColorOutput "    Extension '$extensionId' is already installed in Visual Studio Code." "Green"
@@ -327,7 +351,7 @@ function Update-IDEUserSettings {
         [string]$IDEName,
         [hashtable]$SettingsToAdd
     )
-    
+
     try {
         # Ensure the directory exists
         $settingsDir = Split-Path -Path $SettingsPath -Parent
@@ -335,7 +359,7 @@ function Update-IDEUserSettings {
             New-Item -ItemType Directory -Path $settingsDir -Force | Out-Null
             Write-ColorOutput "  Created $IDEName settings directory: $settingsDir" "Gray"
         }
-        
+
         # Read existing settings if file exists
         $existingSettings = @{}
         if (Test-Path $SettingsPath) {
@@ -343,7 +367,7 @@ function Update-IDEUserSettings {
                 $existingContent = Get-Content $SettingsPath -Raw -ErrorAction Stop
                 $jsonObj = $existingContent | ConvertFrom-Json -ErrorAction Stop
                 Write-ColorOutput "  Found existing $IDEName settings.json" "Gray"
-                
+
                 # Convert PSCustomObject to hashtable for easier manipulation
                 # PowerShell 5.1 doesn't support -AsHashtable, so we do it manually
                 foreach ($prop in $jsonObj.PSObject.Properties) {
@@ -356,7 +380,7 @@ function Update-IDEUserSettings {
         } else {
             Write-ColorOutput "  Creating new $IDEName settings.json" "Gray"
         }
-        
+
         # Merge new settings with existing settings
         $settingsUpdated = $false
         foreach ($key in $SettingsToAdd.Keys) {
@@ -369,7 +393,7 @@ function Update-IDEUserSettings {
                 Write-ColorOutput "    $key already set to $value" "Gray"
             }
         }
-        
+
         # Write updated settings back to file
         if ($settingsUpdated -or -not (Test-Path $SettingsPath)) {
             # Convert hashtable to PSCustomObject for JSON serialization
@@ -432,22 +456,22 @@ if ($gitInstalled -or (Test-CommandExists "git")) {
             if ($LASTEXITCODE -ne 0) {
                 Write-ColorOutput "Warning: Failed to fetch from origin: $fetchOutput" "Yellow"
             }
-            
+
             # Clean working directory completely before checkout
             # Reset any uncommitted changes to tracked files
             git reset --hard HEAD 2>&1 | Out-Null
             # Remove untracked files and directories
             git clean -fd 2>&1 | Out-Null
             Write-ColorOutput "Cleaned working directory" "Gray"
-            
+
             # Check if branch exists locally (more reliable check)
             $localBranchOutput = git branch --list $Branch 2>&1
             $localBranchExists = ($localBranchOutput -match "^\s*\*?\s*$Branch\s*$" -or ($localBranchOutput -and $localBranchOutput.Trim() -ne ""))
-            
+
             # Check if branch exists on remote (more reliable check)
             $remoteBranchOutput = git ls-remote --heads origin $Branch 2>&1
             $remoteBranchExists = ($LASTEXITCODE -eq 0 -and $remoteBranchOutput -and $remoteBranchOutput.Trim() -ne "")
-            
+
             if ($remoteBranchExists) {
                 # Remote branch exists
                 if ($localBranchExists) {
@@ -514,7 +538,7 @@ if ($gitInstalled -or (Test-CommandExists "git")) {
         }
         Pop-Location
     }
-    
+
     if (-not (Test-Path $CloneDirectory)) {
         try {
             Write-ColorOutput "Cloning from $RepositoryUrl (branch: $Branch)..." "Yellow"
@@ -578,7 +602,7 @@ if (Test-CommandExists "yq") {
     # Try installing via winget first
     Write-ColorOutput "Installing yq via winget..." "Yellow"
     $yqInstalled = Install-WithWinget "mikefarah.yq" "yq"
-    
+
     if (-not $yqInstalled) {
         # Fallback: Try direct download for Windows
         Write-ColorOutput "Winget installation failed, trying direct download..." "Yellow"
@@ -587,17 +611,17 @@ if (Test-CommandExists "yq") {
             $yqUrl = "https://github.com/mikefarah/yq/releases/download/$yqVersion/yq_windows_amd64.exe"
             $yqPath = "$env:ProgramFiles\yq\yq.exe"
             $yqDir = "$env:ProgramFiles\yq"
-            
+
             if (-not (Test-Path $yqDir)) {
                 New-Item -ItemType Directory -Path $yqDir -Force | Out-Null
             }
-            
+
             Write-ColorOutput "Downloading yq from GitHub..." "Yellow"
             Invoke-WebRequest -Uri $yqUrl -OutFile $yqPath -UseBasicParsing
-            
+
             # Add to PATH for current session
             $env:Path = "$yqDir;$env:Path"
-            
+
             # Verify installation
             Start-Sleep -Seconds 1
             if (Test-CommandExists "yq") {
@@ -626,38 +650,38 @@ function Copy-CustomMCPs {
         [string]$ConfigPath,
         [string]$BaseMcpDirectory
     )
-    
+
     if (-not (Test-Path $ConfigPath)) {
         Write-ColorOutput "MCPs configuration file not found at: $ConfigPath" "Gray"
         return @()
     }
-    
+
     if (-not (Test-CommandExists "yq")) {
         Write-ColorOutput "yq is not available. Cannot process YAML configuration." "Red"
         return @()
     }
-    
+
     # Ensure base MCP directory exists
     if (-not (Test-Path $BaseMcpDirectory)) {
         New-Item -ItemType Directory -Path $BaseMcpDirectory -Force | Out-Null
         Write-ColorOutput "Created MCP directory: $BaseMcpDirectory" "Gray"
     }
-    
+
     $mcpList = @()
-    
+
     try {
         # Use yq to parse YAML and extract MCP entries
         # Check if this is unified format (servers) or legacy format (mcps)
         $yqOutput = yq eval '.servers // .mcps' $ConfigPath -o json 2>&1
-        
+
         if ($LASTEXITCODE -ne 0) {
             Write-ColorOutput "Warning: Could not parse MCPs YAML: $yqOutput" "Yellow"
             return @()
         }
-        
+
         # Parse the JSON output
         $mcpEntries = $yqOutput | ConvertFrom-Json
-        
+
         # Handle single entry vs array
         if ($null -eq $mcpEntries) {
             return @()
@@ -665,26 +689,26 @@ function Copy-CustomMCPs {
         if ($mcpEntries -isnot [Array]) {
             $mcpEntries = @($mcpEntries)
         }
-        
+
         foreach ($mcp in $mcpEntries) {
             $mcpName = $mcp.name
             $mcpRepo = $mcp.repository
             $mcpBuildCommands = $mcp.buildCommands
-            
+
             # Skip if no repository (standard MCP servers don't need cloning)
             if ([string]::IsNullOrEmpty($mcpRepo)) {
                 continue
             }
-            
+
             if ([string]::IsNullOrEmpty($mcpName)) {
                 Write-ColorOutput "Warning: Skipping MCP entry with missing name" "Yellow"
                 continue
             }
-            
+
             $mcpDirectory = Join-Path $BaseMcpDirectory $mcpName
-            
+
             Write-ColorOutput "Processing MCP: $mcpName" "Yellow"
-            
+
             # Clone or update repository
             if (Test-Path $mcpDirectory) {
                 Write-ColorOutput "  Updating existing repository..." "Gray"
@@ -711,7 +735,7 @@ function Copy-CustomMCPs {
                     continue
                 }
             }
-            
+
             $mcpList += @{
                 Name = $mcpName
                 Directory = $mcpDirectory
@@ -721,7 +745,7 @@ function Copy-CustomMCPs {
     } catch {
         Write-ColorOutput "Error processing custom MCPs configuration: $_" "Red"
     }
-    
+
     return $mcpList
 }
 
@@ -754,31 +778,31 @@ function Build-CustomMCPs {
     param(
         [array]$McpList
     )
-    
+
     if ($McpList.Count -eq 0) {
         return
     }
-    
+
     foreach ($mcp in $McpList) {
         $mcpName = $mcp.Name
         $mcpDirectory = $mcp.Directory
         $buildCommands = $mcp.BuildCommands
-        
+
         # Skip if no build commands specified
         if ($null -eq $buildCommands -or $buildCommands.Count -eq 0) {
             Write-ColorOutput "Skipping build for $mcpName (no build commands specified)" "Gray"
             continue
         }
-        
+
         Write-ColorOutput "Building MCP: $mcpName" "Yellow"
-        
+
         if (-not (Test-Path $mcpDirectory)) {
             Write-ColorOutput "  Error: MCP directory not found at $mcpDirectory" "Red"
             continue
         }
-        
+
         Push-Location $mcpDirectory
-        
+
         $buildSuccess = $true
         foreach ($command in $buildCommands) {
             Write-ColorOutput "  Running: $command" "Gray"
@@ -791,7 +815,7 @@ function Build-CustomMCPs {
                         Write-ColorOutput "    $_" "Gray"
                     }
                 }
-                
+
                 if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne $null) {
                     Write-ColorOutput "  Build command failed with exit code: $LASTEXITCODE" "Red"
                     $buildSuccess = $false
@@ -803,9 +827,9 @@ function Build-CustomMCPs {
                 break
             }
         }
-        
+
         Pop-Location
-        
+
         if ($buildSuccess) {
             Write-ColorOutput "  Build completed successfully!" "Green"
         } else {
@@ -830,22 +854,22 @@ function Convert-MCPPaths {
     param(
         [PSCustomObject]$McpServerConfig
     )
-    
+
     # Skip normalization for URL-based MCPs
     if ($McpServerConfig.PSObject.Properties.Name -contains "url") {
         return $McpServerConfig
     }
-    
+
     $homePath = $env:USERPROFILE
-    
+
     # Helper function to normalize a single path string
     function Convert-PathString {
         param([string]$Path)
-        
+
         if ([string]::IsNullOrEmpty($Path)) {
             return $Path
         }
-        
+
         # Replace ~/ or ~\ at the start with home directory path
         # Need to ensure proper path separator after home directory
         if ($Path -match '^~[/\\]') {
@@ -860,10 +884,10 @@ function Convert-MCPPaths {
             $normalizedPath = Join-Path $homePath $relativePath
             return $normalizedPath -replace '/', '\'
         }
-        
+
         return $Path
     }
-    
+
     # Normalize command if it exists
     if ($McpServerConfig.PSObject.Properties.Name -contains "command") {
         $command = $McpServerConfig.command
@@ -871,7 +895,7 @@ function Convert-MCPPaths {
             $McpServerConfig.command = Convert-PathString -Path $command
         }
     }
-    
+
     # Normalize args array if it exists
     if ($McpServerConfig.PSObject.Properties.Name -contains "args") {
         $mcpArgs = $McpServerConfig.args
@@ -884,7 +908,7 @@ function Convert-MCPPaths {
             $McpServerConfig.args = $mcpArgs
         }
     }
-    
+
     return $McpServerConfig
 }
 
@@ -893,45 +917,45 @@ function Convert-MCPToCursorJson {
     param(
         [string]$YamlConfigPath
     )
-    
+
     if (-not (Test-Path $YamlConfigPath)) {
         Write-ColorOutput "Unified MCP config not found at: $YamlConfigPath" "Yellow"
         return $null
     }
-    
+
     if (-not (Test-CommandExists "yq")) {
         Write-ColorOutput "yq is not available. Cannot convert MCP configuration." "Red"
         return $null
     }
-    
+
     try {
         # Read servers from YAML
         $yqOutput = yq eval '.servers' $YamlConfigPath -o json 2>&1
-        
+
         if ($LASTEXITCODE -ne 0) {
             Write-ColorOutput "Warning: Could not parse unified MCP config: $yqOutput" "Yellow"
             return $null
         }
-        
+
         $servers = $yqOutput | ConvertFrom-Json
-        
+
         if ($null -eq $servers) {
             return $null
         }
-        
+
         if ($servers -isnot [Array]) {
             $servers = @($servers)
         }
-        
+
         # Build Cursor JSON structure
         $mcpServers = @{}
-        
+
         foreach ($server in $servers) {
             # Skip disabled servers
             if ($server.enabled -eq $false) {
                 continue
             }
-            
+
             # Check if server should be included for Cursor
             # If agents field is specified, only include if "cursor" is in the list
             # If agents field is not specified, include for all agents (backward compatible)
@@ -944,14 +968,14 @@ function Convert-MCPToCursorJson {
                     continue
                 }
             }
-            
+
             $serverName = $server.name
             if ([string]::IsNullOrEmpty($serverName)) {
                 continue
             }
-            
+
             $serverConfig = @{}
-            
+
             # Handle URL-based MCPs
             if ($server.url) {
                 $serverConfig.url = $server.url
@@ -961,15 +985,15 @@ function Convert-MCPToCursorJson {
             # Handle command-based MCPs
             elseif ($server.command) {
                 $serverConfig.command = $server.command
-                
+
                 if ($server.args) {
                     $serverConfig.args = $server.args
                 }
-                
+
                 if ($server.env) {
                     $serverConfig.env = $server.env
                 }
-                
+
                 # Normalize paths in the config (only for command-based configs)
                 $serverConfigObj = [PSCustomObject]$serverConfig
                 $normalizedConfig = Convert-MCPPaths -McpServerConfig $serverConfigObj
@@ -978,7 +1002,7 @@ function Convert-MCPToCursorJson {
                 Write-ColorOutput "  Warning: Server '$serverName' has neither 'command' nor 'url', skipping" "Yellow"
                 continue
             }
-            
+
             # Convert back to hashtable for JSON serialization
             $finalConfig = @{}
             foreach ($prop in $normalizedConfig.PSObject.Properties) {
@@ -993,19 +1017,370 @@ function Convert-MCPToCursorJson {
                     $finalConfig[$prop.Name] = $prop.Value
                 }
             }
-            
+
             $mcpServers[$serverName] = $finalConfig
         }
-        
+
         # Create the JSON structure
         $result = @{
             mcpServers = $mcpServers
         }
-        
+
         return $result
     } catch {
         Write-ColorOutput "Error converting MCP config to Cursor JSON: $_" "Red"
         return $null
+    }
+}
+
+# Function to convert unified YAML MCP config to Claude Desktop JSON format
+function Convert-MCPToClaudeJson {
+    param(
+        [string]$YamlConfigPath
+    )
+
+    if (-not (Test-Path $YamlConfigPath)) {
+        Write-ColorOutput "Unified MCP config not found at: $YamlConfigPath" "Yellow"
+        return $null
+    }
+
+    if (-not (Test-CommandExists "yq")) {
+        Write-ColorOutput "yq is not available. Cannot convert MCP configuration." "Red"
+        return $null
+    }
+
+    try {
+        # Read servers from YAML
+        $yqOutput = yq eval '.servers' $YamlConfigPath -o json 2>&1
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-ColorOutput "Warning: Could not parse unified MCP config: $yqOutput" "Yellow"
+            return $null
+        }
+
+        $servers = $yqOutput | ConvertFrom-Json
+
+        if ($null -eq $servers) {
+            return $null
+        }
+
+        if ($servers -isnot [Array]) {
+            $servers = @($servers)
+        }
+
+        # Build Claude Desktop JSON structure
+        $mcpServers = @{}
+
+        foreach ($server in $servers) {
+            # Skip disabled servers
+            if ($server.enabled -eq $false) {
+                continue
+            }
+
+            # Check if server should be included for Claude Desktop
+            # If agents field is specified, only include if "claude-desktop" is in the list
+            # If agents field is not specified, include for all agents (backward compatible)
+            if ($server.agents) {
+                $agentsList = $server.agents
+                if ($agentsList -isnot [Array]) {
+                    $agentsList = @($agentsList)
+                }
+                if ($agentsList -notcontains "claude-desktop") {
+                    continue
+                }
+            }
+
+            $serverName = $server.name
+            if ([string]::IsNullOrEmpty($serverName)) {
+                continue
+            }
+
+            $serverConfig = @{}
+
+            # Handle URL-based MCPs
+            if ($server.url) {
+                $serverConfig.url = $server.url
+                # URL-based configs don't need path normalization
+                $normalizedConfig = [PSCustomObject]$serverConfig
+            }
+            # Handle command-based MCPs
+            elseif ($server.command) {
+                $serverConfig.command = $server.command
+
+                if ($server.args) {
+                    $serverConfig.args = $server.args
+                }
+
+                if ($server.env) {
+                    $serverConfig.env = $server.env
+                }
+
+                # Normalize paths in the config (only for command-based configs)
+                $serverConfigObj = [PSCustomObject]$serverConfig
+                $normalizedConfig = Convert-MCPPaths -McpServerConfig $serverConfigObj
+            } else {
+                # No command or url, skip this server
+                Write-ColorOutput "  Warning: Server '$serverName' has neither 'command' nor 'url', skipping" "Yellow"
+                continue
+            }
+
+            # Convert back to hashtable for JSON serialization
+            $finalConfig = @{}
+            foreach ($prop in $normalizedConfig.PSObject.Properties) {
+                # If the property is env (PSCustomObject), convert it to hashtable for proper JSON serialization
+                if ($prop.Name -eq "env" -and $prop.Value -is [PSCustomObject]) {
+                    $envHashtable = @{}
+                    foreach ($envKey in $prop.Value.PSObject.Properties.Name) {
+                        $envHashtable[$envKey] = $prop.Value.$envKey
+                    }
+                    $finalConfig[$prop.Name] = $envHashtable
+                } else {
+                    $finalConfig[$prop.Name] = $prop.Value
+                }
+            }
+
+            $mcpServers[$serverName] = $finalConfig
+        }
+
+        # Create the JSON structure (Claude Desktop uses same format as Cursor)
+        $result = @{
+            mcpServers = $mcpServers
+        }
+
+        return $result
+    } catch {
+        Write-ColorOutput "Error converting MCP config to Claude Desktop JSON: $_" "Red"
+        return $null
+    }
+}
+
+# Function to convert unified YAML MCP config to Claude Code JSON format
+# Claude Code stores MCPs in ~/.claude.json under the "mcpServers" key
+function Convert-MCPToClaudeCodeJson {
+    param(
+        [string]$YamlConfigPath
+    )
+
+    if (-not (Test-Path $YamlConfigPath)) {
+        Write-ColorOutput "Unified MCP config not found at: $YamlConfigPath" "Yellow"
+        return $null
+    }
+
+    if (-not (Test-CommandExists "yq")) {
+        Write-ColorOutput "yq is not available. Cannot convert MCP configuration." "Red"
+        return $null
+    }
+
+    try {
+        # Read servers from YAML
+        $yqOutput = yq eval '.servers' $YamlConfigPath -o json 2>&1
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-ColorOutput "Warning: Could not parse unified MCP config: $yqOutput" "Yellow"
+            return $null
+        }
+
+        $servers = $yqOutput | ConvertFrom-Json
+
+        if ($null -eq $servers) {
+            return $null
+        }
+
+        if ($servers -isnot [Array]) {
+            $servers = @($servers)
+        }
+
+        # Build Claude Code JSON structure
+        $mcpServers = @{}
+
+        foreach ($server in $servers) {
+            # Skip disabled servers
+            if ($server.enabled -eq $false) {
+                continue
+            }
+
+            # Check if server should be included for Claude Code
+            # If agents field is specified, only include if "claude-code" is in the list
+            # If agents field is not specified, include for all agents (backward compatible)
+            if ($server.agents) {
+                $agentsList = $server.agents
+                if ($agentsList -isnot [Array]) {
+                    $agentsList = @($agentsList)
+                }
+                if ($agentsList -notcontains "claude-code") {
+                    continue
+                }
+            }
+
+            $serverName = $server.name
+            if ([string]::IsNullOrEmpty($serverName)) {
+                continue
+            }
+
+            $serverConfig = @{}
+
+            # Handle URL-based MCPs
+            if ($server.url) {
+                $serverConfig.url = $server.url
+                # URL-based configs don't need path normalization
+                $normalizedConfig = [PSCustomObject]$serverConfig
+            }
+            # Handle command-based MCPs
+            elseif ($server.command) {
+                $serverConfig.command = $server.command
+
+                if ($server.args) {
+                    $serverConfig.args = $server.args
+                }
+
+                if ($server.env) {
+                    $serverConfig.env = $server.env
+                }
+
+                # Normalize paths in the config (only for command-based configs)
+                $serverConfigObj = [PSCustomObject]$serverConfig
+                $normalizedConfig = Convert-MCPPaths -McpServerConfig $serverConfigObj
+            } else {
+                # No command or url, skip this server
+                Write-ColorOutput "  Warning: Server '$serverName' has neither 'command' nor 'url', skipping" "Yellow"
+                continue
+            }
+
+            # Convert back to hashtable for JSON serialization
+            $finalConfig = @{}
+            foreach ($prop in $normalizedConfig.PSObject.Properties) {
+                # If the property is env (PSCustomObject), convert it to hashtable for proper JSON serialization
+                if ($prop.Name -eq "env" -and $prop.Value -is [PSCustomObject]) {
+                    $envHashtable = @{}
+                    foreach ($envKey in $prop.Value.PSObject.Properties.Name) {
+                        $envHashtable[$envKey] = $prop.Value.$envKey
+                    }
+                    $finalConfig[$prop.Name] = $envHashtable
+                } else {
+                    $finalConfig[$prop.Name] = $prop.Value
+                }
+            }
+
+            $mcpServers[$serverName] = $finalConfig
+        }
+
+        # Create the JSON structure (Claude Code uses mcpServers at root level of ~/.claude.json)
+        $result = @{
+            mcpServers = $mcpServers
+        }
+
+        return $result
+    } catch {
+        Write-ColorOutput "Error converting MCP config to Claude Code JSON: $_" "Red"
+        return $null
+    }
+}
+
+# Function to merge Claude Code MCP configuration using yq
+# Claude Code stores config in ~/.claude.json which may have other settings we need to preserve
+# Uses yq for graceful deep merging that preserves all existing settings
+function Merge-ClaudeCodeConfig {
+    param(
+        [string]$ExistingConfigPath,
+        [hashtable]$NewMcpConfig
+    )
+
+    if ($null -eq $NewMcpConfig -or $NewMcpConfig.Count -eq 0) {
+        Write-ColorOutput "No new MCP configuration to merge for Claude Code" "Yellow"
+        return $false
+    }
+
+    if (-not (Test-CommandExists "yq")) {
+        Write-ColorOutput "yq is not available. Cannot merge Claude Code configuration." "Red"
+        return $false
+    }
+
+    try {
+        # Create the config file with empty object if it doesn't exist
+        if (-not (Test-Path $ExistingConfigPath)) {
+            Write-ColorOutput "Creating new Claude Code config at: $ExistingConfigPath" "Gray"
+            # Use .NET to write UTF8 without BOM (PowerShell's -Encoding UTF8 adds BOM which yq can't parse)
+            [System.IO.File]::WriteAllText($ExistingConfigPath, '{}', [System.Text.UTF8Encoding]::new($false))
+        } else {
+            Write-ColorOutput "Found existing Claude Code config at: $ExistingConfigPath" "Gray"
+        }
+
+        # Get list of existing MCP servers for comparison
+        $existingServers = @()
+        $existingServersOutput = yq eval '.mcpServers | keys | .[]' $ExistingConfigPath -o json 2>&1
+        if ($LASTEXITCODE -eq 0 -and $existingServersOutput) {
+            $existingServers = $existingServersOutput | ForEach-Object { $_.Trim('"') }
+        }
+
+        # Convert new MCP config to JSON for yq to process
+        $newMcpServers = $NewMcpConfig.mcpServers
+        $addedCount = 0
+        $serversToAdd = @{}
+
+        foreach ($serverName in $newMcpServers.Keys) {
+            if ($existingServers -contains $serverName) {
+                Write-ColorOutput "  MCP server '$serverName' already exists in Claude Code config, preserving existing configuration" "Yellow"
+            } else {
+                $serversToAdd[$serverName] = $newMcpServers[$serverName]
+                $addedCount++
+            }
+        }
+
+        if ($addedCount -eq 0) {
+            if ($newMcpServers.Count -gt 0) {
+                Write-ColorOutput "All required MCP servers are already configured in Claude Code" "Green"
+            }
+            return $true
+        }
+
+        # Create a temporary JSON file with just the new servers to merge using yq
+        $tempJsonPath = [System.IO.Path]::GetTempFileName() -replace '\.tmp$', '.json'
+        try {
+            # Build the merge payload with only new servers and pipe through yq to create clean JSON
+            $mergePayload = @{ mcpServers = $serversToAdd }
+            $mergeJson = $mergePayload | ConvertTo-Json -Depth 10 -Compress
+
+            # Use yq to create the temp file (ensures proper encoding and valid JSON)
+            $mergeJson | yq eval '.' -o json -P | Out-File -FilePath $tempJsonPath -Encoding ascii -NoNewline
+
+            if ($LASTEXITCODE -ne 0) {
+                Write-ColorOutput "Error creating temp JSON file with yq" "Red"
+                return $false
+            }
+
+            # Convert paths to forward slashes for yq
+            $tempJsonPathForYq = $tempJsonPath -replace '\\', '/'
+            $existingPathForYq = $ExistingConfigPath -replace '\\', '/'
+
+            # Use yq to deep merge: existing config with new mcpServers added
+            # The * operator does a deep merge where new values are added
+            $mergedOutput = yq eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' $existingPathForYq $tempJsonPathForYq -o json 2>&1
+
+            if ($LASTEXITCODE -ne 0) {
+                Write-ColorOutput "Error during yq merge: $mergedOutput" "Red"
+                return $false
+            }
+
+            # Write the merged output back to the config file using yq for consistent encoding
+            # Use -I 2 for 2-space indentation (pretty-print)
+            $mergedOutput | yq eval '.' -o json -I 2 | Out-File -FilePath $ExistingConfigPath -Encoding ascii -NoNewline
+
+            # Report which servers were added
+            foreach ($serverName in $serversToAdd.Keys) {
+                Write-ColorOutput "  Added MCP server to Claude Code: $serverName" "Green"
+            }
+
+            Write-ColorOutput "Claude Code configuration updated successfully!" "Green"
+            return $true
+        } finally {
+            # Clean up temp file
+            if (Test-Path $tempJsonPath) {
+                Remove-Item $tempJsonPath -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {
+        Write-ColorOutput "Error merging Claude Code config: $_" "Red"
+        return $false
     }
 }
 
@@ -1014,46 +1389,46 @@ function Convert-MCPToCodexToml {
     param(
         [string]$YamlConfigPath
     )
-    
+
     if (-not (Test-Path $YamlConfigPath)) {
         Write-ColorOutput "Unified MCP config not found at: $YamlConfigPath" "Yellow"
         return $null
     }
-    
+
     if (-not (Test-CommandExists "yq")) {
         Write-ColorOutput "yq is not available. Cannot convert MCP configuration." "Red"
         return $null
     }
-    
+
     try {
         # Read servers from YAML
         $yqOutput = yq eval '.servers' $YamlConfigPath -o json 2>&1
-        
+
         if ($LASTEXITCODE -ne 0) {
             Write-ColorOutput "Warning: Could not parse unified MCP config: $yqOutput" "Yellow"
             return $null
         }
-        
+
         $servers = $yqOutput | ConvertFrom-Json
-        
+
         if ($null -eq $servers) {
             return $null
         }
-        
+
         if ($servers -isnot [Array]) {
             $servers = @($servers)
         }
-        
+
         # Build TOML structure using yq
         # We'll create a temporary YAML structure that yq can convert to TOML
         $tomlSections = @()
-        
+
         foreach ($server in $servers) {
             # Skip disabled servers
             if ($server.enabled -eq $false) {
                 continue
             }
-            
+
             # Check if server should be included for Codex
             # If agents field is specified, only include if "codex" is in the list
             # If agents field is not specified, include for all agents (backward compatible)
@@ -1066,20 +1441,20 @@ function Convert-MCPToCodexToml {
                     continue
                 }
             }
-            
+
             $serverName = $server.name
             if ([string]::IsNullOrEmpty($serverName)) {
                 continue
             }
-            
+
             # Build TOML section for this server
             $section = "[mcp_servers.$serverName]`n"
-            
+
             # Add 'enabled' field first at server level (before env section to avoid it being placed in env section)
             if ($null -ne $server.enabled) {
                 $section += "enabled = $($server.enabled.ToString().ToLower())`n"
             }
-            
+
             # Handle URL-based MCPs
             if ($server.url) {
                 $section += "url = `"$($server.url)`"`n"
@@ -1087,7 +1462,7 @@ function Convert-MCPToCodexToml {
             # Handle command-based MCPs
             elseif ($server.command) {
                 $section += "command = `"$($server.command)`"`n"
-                
+
                 if ($server.args) {
                     # Convert args array to TOML format
                     $argsList = @()
@@ -1106,26 +1481,26 @@ function Convert-MCPToCodexToml {
                 Write-ColorOutput "  Warning: Server '$serverName' has neither 'command' nor 'url', skipping" "Yellow"
                 continue
             }
-            
+
             # Add optional Codex-specific fields
             if ($server.startup_timeout_sec) {
                 $section += "startup_timeout_sec = $($server.startup_timeout_sec)`n"
             }
-            
+
             if ($server.tool_timeout_sec) {
                 $section += "tool_timeout_sec = $($server.tool_timeout_sec)`n"
             }
-            
+
             if ($server.enabled_tools) {
                 $toolsStr = $server.enabled_tools -join '", "'
                 $section += "enabled_tools = [`"$toolsStr`"]`n"
             }
-            
+
             if ($server.disabled_tools) {
                 $toolsStr = $server.disabled_tools -join '", "'
                 $section += "disabled_tools = [`"$toolsStr`"]`n"
             }
-            
+
             # Add env section last (after all server-level fields)
             if ($server.env) {
                 $section += "`n[mcp_servers.$serverName.env]`n"
@@ -1150,10 +1525,10 @@ function Convert-MCPToCodexToml {
                     }
                 }
             }
-            
+
             $tomlSections += $section
         }
-        
+
         return $tomlSections -join "`n`n"
     } catch {
         Write-ColorOutput "Error converting MCP config to Codex TOML: $_" "Red"
@@ -1167,33 +1542,33 @@ function Merge-CodexTomlConfig {
         [string]$ExistingConfigPath,
         [string]$NewTomlContent
     )
-    
+
     if ($null -eq $NewTomlContent -or [string]::IsNullOrEmpty($NewTomlContent)) {
         Write-ColorOutput "No new TOML content to merge" "Yellow"
         return $false
     }
-    
+
     if (-not (Test-CommandExists "yq")) {
         Write-ColorOutput "yq is not available. Cannot merge Codex TOML configuration." "Red"
         return $false
     }
-    
+
     try {
         $existingContent = ""
         $existingMcpServers = @{}
-        
+
         # Read existing config if it exists
         if (Test-Path $ExistingConfigPath) {
             $existingContent = Get-Content $ExistingConfigPath -Raw
             Write-ColorOutput "Found existing Codex config at: $ExistingConfigPath" "Gray"
-            
+
             # Extract existing mcp_servers sections using yq
             $yqOutput = yq eval '.mcp_servers // {}' $ExistingConfigPath -o json 2>&1
             if ($LASTEXITCODE -eq 0 -and $yqOutput) {
                 $existingMcpServers = $yqOutput | ConvertFrom-Json
             }
         }
-        
+
         # Parse new TOML content to extract server names
         $newServerNames = @()
         $lines = $NewTomlContent -split "`n"
@@ -1205,7 +1580,7 @@ function Merge-CodexTomlConfig {
                 }
             }
         }
-        
+
         # Check which servers are new
         $addedCount = 0
         foreach ($serverName in $newServerNames) {
@@ -1216,11 +1591,11 @@ function Merge-CodexTomlConfig {
                 Write-ColorOutput "  MCP server '$serverName' already exists in Codex config, preserving existing configuration" "Yellow"
             }
         }
-        
+
         if ($addedCount -eq 0) {
             Write-ColorOutput "All required MCP servers are already configured in Codex" "Green"
         }
-        
+
         # Merge TOML content
         # If no existing config, just write the new content
         if ([string]::IsNullOrEmpty($existingContent)) {
@@ -1228,16 +1603,16 @@ function Merge-CodexTomlConfig {
             Write-ColorOutput "Codex TOML configuration created successfully!" "Green"
             return $true
         }
-        
+
         # For merging, we need to append new mcp_servers sections
         # Remove existing mcp_servers sections and append new ones
         $mergedContent = $existingContent
-        
+
         # Remove existing mcp_servers sections (lines between [mcp_servers.*] and next [section] or end)
         $contentLines = $mergedContent -split "`n"
         $newLines = @()
         $skipUntilNextSection = $false
-        
+
         foreach ($line in $contentLines) {
             if ($line -match '^\s*\[mcp_servers\.') {
                 $skipUntilNextSection = $true
@@ -1254,7 +1629,7 @@ function Merge-CodexTomlConfig {
                 $newLines += $line
             }
         }
-        
+
         # Append new mcp_servers sections
         $mergedContent = $newLines -join "`n"
         if (-not $mergedContent.EndsWith("`n")) {
@@ -1262,7 +1637,7 @@ function Merge-CodexTomlConfig {
         }
         $mergedContent += "`n"
         $mergedContent += $NewTomlContent
-        
+
         $mergedContent | Set-Content $ExistingConfigPath -Encoding UTF8
         Write-ColorOutput "Codex TOML configuration updated successfully!" "Green"
         return $true
@@ -1277,30 +1652,30 @@ function Update-LegacyMCPConfig {
     param(
         [string]$CloneDirectory
     )
-    
+
     $legacyJsonPath = "$CloneDirectory\cursor-mcp-config.json"
     $legacyYamlPath = "$CloneDirectory\mcps.yaml"
     $unifiedPath = "$CloneDirectory\mcps-config.yaml"
-    
+
     # Check if unified config already exists
     if (Test-Path $unifiedPath) {
         Write-ColorOutput "Unified MCP config already exists, skipping migration" "Gray"
         return $false
     }
-    
+
     # Check if we have legacy configs to migrate
     $hasLegacyJson = Test-Path $legacyJsonPath
     $hasLegacyYaml = Test-Path $legacyYamlPath
-    
+
     if (-not $hasLegacyJson -and -not $hasLegacyYaml) {
         return $false
     }
-    
+
     Write-ColorOutput "Migrating legacy MCP configs to unified format..." "Yellow"
-    
+
     try {
         $servers = @()
-        
+
         # Read legacy JSON config
         if ($hasLegacyJson) {
             $jsonContent = Get-Content $legacyJsonPath -Raw | ConvertFrom-Json
@@ -1313,16 +1688,16 @@ function Update-LegacyMCPConfig {
                         args = $serverConfig.args
                         enabled = $true
                     }
-                    
+
                     if ($serverConfig.env) {
                         $server.env = $serverConfig.env
                     }
-                    
+
                     $servers += $server
                 }
             }
         }
-        
+
         # Read legacy YAML config for custom MCPs
         if ($hasLegacyYaml -and (Test-CommandExists "yq")) {
             $yqOutput = yq eval '.mcps' $legacyYamlPath -o json 2>&1
@@ -1331,7 +1706,7 @@ function Update-LegacyMCPConfig {
                 if ($customMcps -isnot [Array]) {
                     $customMcps = @($customMcps)
                 }
-                
+
                 foreach ($customMcp in $customMcps) {
                     # Find matching server in servers array and add repository/buildCommands
                     $matchingServer = $servers | Where-Object { $_.name -eq $customMcp.name }
@@ -1355,20 +1730,20 @@ function Update-LegacyMCPConfig {
                 }
             }
         }
-        
+
         # Create unified YAML
         $unifiedConfig = @{
             servers = $servers
         }
-        
+
         # Convert to YAML using yq
         $yamlContent = $unifiedConfig | ConvertTo-Json -Depth 10
         $tempJson = "$env:TEMP\mcp-migration-temp.json"
         $yamlContent | Set-Content $tempJson -Encoding UTF8
-        
+
         # Use yq to convert JSON to YAML
         yq eval -P '.' $tempJson > $unifiedPath 2>&1
-        
+
         if ($LASTEXITCODE -eq 0) {
             Write-ColorOutput "Successfully migrated legacy configs to unified format" "Green"
             Remove-Item $tempJson -ErrorAction SilentlyContinue
@@ -1417,9 +1792,9 @@ function Merge-MCPConfig {
         [string]$ExistingConfigPath,
         [string]$NewConfigPath
     )
-    
+
     $mergedServers = @{}
-    
+
     # Load existing config if it exists
     if (Test-Path $ExistingConfigPath) {
         try {
@@ -1434,7 +1809,7 @@ function Merge-MCPConfig {
             Write-ColorOutput "Warning: Could not parse existing MCP config: $_" "Yellow"
         }
     }
-    
+
     # Load new config from repository and merge
     if (Test-Path $NewConfigPath) {
         try {
@@ -1460,7 +1835,7 @@ function Merge-MCPConfig {
             Write-ColorOutput "Warning: Could not parse new MCP config: $_" "Yellow"
         }
     }
-    
+
     # Save merged config
     try {
         # Convert hashtable to PSCustomObject for proper JSON serialization
@@ -1468,11 +1843,11 @@ function Merge-MCPConfig {
         foreach ($key in $mergedServers.Keys) {
             $mcpServersObj | Add-Member -MemberType NoteProperty -Name $key -Value $mergedServers[$key]
         }
-        
+
         $mergedConfigObj = [PSCustomObject]@{
             mcpServers = $mcpServersObj
         }
-        
+
         $jsonContent = $mergedConfigObj | ConvertTo-Json -Depth 10
         $jsonContent | Set-Content $ExistingConfigPath -Encoding UTF8
         Write-ColorOutput "MCP configuration updated successfully!" "Green"
@@ -1498,17 +1873,17 @@ try {
         # Check for rules file
         $rulesSource = "$CloneDirectory\.cursor\rules"
         $settingsSource = "$CloneDirectory\cursor-settings.json"
-        
+
         if (Test-Path $rulesSource) {
             Write-ColorOutput "Copying rules configuration..." "Yellow"
             # The actual Cursor rules location might vary, this is a placeholder
             # You'll need to verify the correct location for Cursor rules
         }
-        
+
         # Only copy settings.json if it doesn't already exist
         if (Test-Path $settingsSource) {
             $settingsDest = "$cursorConfigPath\settings.json"
-            
+
             if (Test-Path $settingsDest) {
                 Write-ColorOutput "Cursor settings.json already exists, skipping to preserve your configuration" "Yellow"
             } else {
@@ -1517,38 +1892,38 @@ try {
                 Write-ColorOutput "Settings created successfully!" "Green"
             }
         }
-        
+
         # Set up MCP configuration (merge, don't overwrite)
         # Try to migrate legacy configs first
         Update-LegacyMCPConfig -CloneDirectory $CloneDirectory | Out-Null
-        
+
         # Unified MCP config location
         $unifiedMcpConfigPath = "$CloneDirectory\mcps-config.yaml"
         $legacyMcpConfigPath = "$CloneDirectory\cursor-mcp-config.json"
-        
+
         # Determine which config to use
         $useUnifiedConfig = Test-Path $unifiedMcpConfigPath
         $useLegacyConfig = Test-Path $legacyMcpConfigPath
-        
+
         if (-not $useUnifiedConfig -and -not $useLegacyConfig) {
             Write-ColorOutput "No MCP configuration found, skipping MCP setup" "Yellow"
         } else {
             Write-ColorOutput "Configuring MCP servers..." "Yellow"
-            
+
             # Configure Cursor MCP (JSON format)
             $cursorMcpConfigDir = "$env:USERPROFILE\.cursor"
             $cursorMcpConfigPath = "$cursorMcpConfigDir\mcp.json"
-            
+
             # Ensure .cursor directory exists
             if (-not (Test-Path $cursorMcpConfigDir)) {
                 New-Item -ItemType Directory -Path $cursorMcpConfigDir -Force | Out-Null
                 Write-ColorOutput "Created .cursor directory at: $cursorMcpConfigDir" "Gray"
             }
-            
+
             if (Test-Path $cursorMcpConfigPath) {
                 Write-ColorOutput "Found existing Cursor MCP config at: $cursorMcpConfigPath" "Gray"
             }
-            
+
             if ($useUnifiedConfig) {
                 # Use unified config - convert to Cursor JSON
                 try {
@@ -1557,7 +1932,7 @@ try {
                         # Create temporary JSON file for merging
                         $tempJsonPath = "$env:TEMP\cursor-mcp-temp.json"
                         $cursorJsonConfig | ConvertTo-Json -Depth 10 | Set-Content $tempJsonPath -Encoding UTF8
-                        Merge-MCPConfig -ExistingConfigPath $cursorMcpConfigPath -NewConfigPath $tempJsonPath
+                        Merge-MCPConfig -ExistingConfigPath $cursorMcpConfigPath -NewConfigPath $tempJsonPath | Out-Null
                         Remove-Item $tempJsonPath -ErrorAction SilentlyContinue
                     }
                 } catch {
@@ -1566,35 +1941,84 @@ try {
             } elseif ($useLegacyConfig) {
                 # Fall back to legacy JSON config
                 try {
-                    Merge-MCPConfig -ExistingConfigPath $cursorMcpConfigPath -NewConfigPath $legacyMcpConfigPath
+                    Merge-MCPConfig -ExistingConfigPath $cursorMcpConfigPath -NewConfigPath $legacyMcpConfigPath | Out-Null
                 } catch {
                     Write-ColorOutput "Warning: Could not merge legacy MCP configuration: $_" "Yellow"
                 }
             }
-            
+
             # Configure Codex MCP (TOML format)
             $codexConfigDir = "$env:USERPROFILE\.codex"
             $codexConfigPath = "$codexConfigDir\config.toml"
-            
+
             # Ensure .codex directory exists
             if (-not (Test-Path $codexConfigDir)) {
                 New-Item -ItemType Directory -Path $codexConfigDir -Force | Out-Null
                 Write-ColorOutput "Created .codex directory at: $codexConfigDir" "Gray"
             }
-            
+
             if (Test-Path $codexConfigPath) {
                 Write-ColorOutput "Found existing Codex config at: $codexConfigPath" "Gray"
             }
-            
+
             if ($useUnifiedConfig) {
                 # Use unified config - convert to Codex TOML
                 try {
                     $codexTomlContent = Convert-MCPToCodexToml -YamlConfigPath $unifiedMcpConfigPath
                     if ($null -ne $codexTomlContent) {
-                        Merge-CodexTomlConfig -ExistingConfigPath $codexConfigPath -NewTomlContent $codexTomlContent
+                        Merge-CodexTomlConfig -ExistingConfigPath $codexConfigPath -NewTomlContent $codexTomlContent | Out-Null
                     }
                 } catch {
                     Write-ColorOutput "Warning: Could not convert unified config to Codex TOML: $_" "Yellow"
+                }
+            }
+
+            # Configure Claude Desktop MCP (JSON format)
+            $claudeConfigDir = "$env:APPDATA\Claude"
+            $claudeConfigPath = "$claudeConfigDir\claude_desktop_config.json"
+
+            # Ensure Claude directory exists
+            if (-not (Test-Path $claudeConfigDir)) {
+                New-Item -ItemType Directory -Path $claudeConfigDir -Force | Out-Null
+                Write-ColorOutput "Created Claude directory at: $claudeConfigDir" "Gray"
+            }
+
+            if (Test-Path $claudeConfigPath) {
+                Write-ColorOutput "Found existing Claude Desktop config at: $claudeConfigPath" "Gray"
+            }
+
+            if ($useUnifiedConfig) {
+                # Use unified config - convert to Claude Desktop JSON
+                try {
+                    $claudeJsonConfig = Convert-MCPToClaudeJson -YamlConfigPath $unifiedMcpConfigPath
+                    if ($null -ne $claudeJsonConfig) {
+                        # Create temporary JSON file for merging
+                        $tempClaudeJsonPath = "$env:TEMP\claude-mcp-temp.json"
+                        $claudeJsonConfig | ConvertTo-Json -Depth 10 | Set-Content $tempClaudeJsonPath -Encoding UTF8
+                        Merge-MCPConfig -ExistingConfigPath $claudeConfigPath -NewConfigPath $tempClaudeJsonPath | Out-Null
+                        Remove-Item $tempClaudeJsonPath -ErrorAction SilentlyContinue
+                    }
+                } catch {
+                    Write-ColorOutput "Warning: Could not convert unified config to Claude Desktop JSON: $_" "Yellow"
+                }
+            }
+
+            # Configure Claude Code MCP (JSON format at ~/.claude.json)
+            $claudeCodeConfigPath = "$env:USERPROFILE\.claude.json"
+
+            if (Test-Path $claudeCodeConfigPath) {
+                Write-ColorOutput "Found existing Claude Code config at: $claudeCodeConfigPath" "Gray"
+            }
+
+            if ($useUnifiedConfig) {
+                # Use unified config - convert to Claude Code JSON
+                try {
+                    $claudeCodeJsonConfig = Convert-MCPToClaudeCodeJson -YamlConfigPath $unifiedMcpConfigPath
+                    if ($null -ne $claudeCodeJsonConfig) {
+                        Merge-ClaudeCodeConfig -ExistingConfigPath $claudeCodeConfigPath -NewMcpConfig $claudeCodeJsonConfig | Out-Null
+                    }
+                } catch {
+                    Write-ColorOutput "Warning: Could not convert unified config to Claude Code JSON: $_" "Yellow"
                 }
             }
         }
@@ -1620,14 +2044,14 @@ try {
     } else {
         Write-ColorOutput "Installing nvm-windows (Node Version Manager)..." "Yellow"
         $nvmInstalled = Install-WithWinget "CoreyButler.NVMforWindows" "nvm-windows"
-        
+
         if ($nvmInstalled) {
             # Refresh PATH to include nvm
             $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-            
+
             # Wait a moment for PATH to propagate
             Start-Sleep -Seconds 2
-            
+
             # Verify nvm is now available
             if (Test-CommandExists "nvm") {
                 Write-ColorOutput "nvm-windows installed successfully!" "Green"
@@ -1673,10 +2097,10 @@ try {
                             Write-ColorOutput "Node.js LTS installed successfully!" "Green"
                         }
                     }
-                    
+
                     # Refresh PATH again after nvm install
                     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-                    
+
                     # Verify installation
                     Start-Sleep -Seconds 2
                     if (Test-CommandExists "node") {
@@ -1716,11 +2140,11 @@ Write-ColorOutput "Step ${stepNumber}: Installing Godot Game Engine..." "Cyan"
 try {
     $godotPath = "C:\Program Files\Godot\Godot.exe"
     $godotInstalled = $false
-    
+
     if (Test-Path $godotPath) {
         Write-ColorOutput "Godot is already installed at: $godotPath" "Green"
         $godotInstalled = $true
-        
+
         # Try to get version info
         try {
             $godotVersion = & $godotPath --version 2>&1 | Select-Object -First 1
@@ -1732,57 +2156,57 @@ try {
         }
     } else {
         Write-ColorOutput "Installing Godot 4.5.1..." "Yellow"
-        
+
         # Define installation variables
         $godotDownloadUrl = "https://github.com/godotengine/godot/releases/download/4.5.1-stable/Godot_v4.5.1-stable_win64.exe.zip"
         $godotZipPath = "$env:TEMP\Godot_v4.5.1-stable_win64.exe.zip"
         $godotTempExtractPath = "$env:TEMP\GodotExtract"
         $godotExpectedChecksum = "DEFCCC78669E644861B4247626B01AE362CD9F23975EDF19C8BFD2EB1F6A1783"
         $godotInstallDir = "C:\Program Files\Godot"
-        
+
         try {
             # Download Godot
             Write-ColorOutput "Downloading Godot from GitHub releases..." "Yellow"
             Invoke-WebRequest -Uri $godotDownloadUrl -OutFile $godotZipPath -UseBasicParsing
-            
+
             # Verify checksum
             Write-ColorOutput "Verifying download integrity..." "Yellow"
             $calculatedChecksum = (Get-FileHash -Path $godotZipPath -Algorithm SHA256).Hash
-            
+
             if ($calculatedChecksum -ne $godotExpectedChecksum) {
                 Write-ColorOutput "Checksum verification failed!" "Red"
                 Write-ColorOutput "Expected: $godotExpectedChecksum" "Red"
                 Write-ColorOutput "Got: $calculatedChecksum" "Red"
                 Write-ColorOutput "The download may be corrupted. Skipping Godot installation." "Red"
-                
+
                 # Clean up failed download
                 if (Test-Path $godotZipPath) {
                     Remove-Item $godotZipPath -Force -ErrorAction SilentlyContinue
                 }
             } else {
                 Write-ColorOutput "Checksum verified successfully!" "Green"
-                
+
                 # Create installation directory if it doesn't exist
                 if (-not (Test-Path $godotInstallDir)) {
                     New-Item -ItemType Directory -Path $godotInstallDir -Force | Out-Null
                     Write-ColorOutput "Created Godot directory: $godotInstallDir" "Gray"
                 }
-                
+
                 # Extract the ZIP file to temp location first
                 Write-ColorOutput "Extracting Godot..." "Yellow"
                 if (Test-Path $godotTempExtractPath) {
                     Remove-Item $godotTempExtractPath -Recurse -Force -ErrorAction SilentlyContinue
                 }
                 Expand-Archive -Path $godotZipPath -DestinationPath $godotTempExtractPath -Force
-                
+
                 # Find the Godot executable in the extracted files
                 $extractedExe = Get-ChildItem -Path $godotTempExtractPath -Filter "Godot*.exe" -Recurse | Select-Object -First 1
-                
+
                 if ($extractedExe) {
                     # Move the executable to the installation directory
                     $targetPath = Join-Path $godotInstallDir "Godot.exe"
                     Move-Item -Path $extractedExe.FullName -Destination $targetPath -Force
-                    
+
                     # Also check if there's a console version and copy it
                     $consoleExe = Get-ChildItem -Path $godotTempExtractPath -Filter "*console*.exe" -Recurse | Select-Object -First 1
                     if ($consoleExe) {
@@ -1790,16 +2214,16 @@ try {
                         Move-Item -Path $consoleExe.FullName -Destination $consoleTargetPath -Force
                         Write-ColorOutput "Console version also installed: $consoleTargetPath" "Gray"
                     }
-                    
+
                     Write-ColorOutput "Godot installed successfully to: $targetPath" "Green"
                     $godotInstalled = $true
-                    
+
                     # Add Godot to PATH for current session
                     if ($env:Path -notlike "*$godotInstallDir*") {
                         $env:Path = "$godotInstallDir;$env:Path"
                         Write-ColorOutput "Added Godot to PATH for current session" "Gray"
                     }
-                    
+
                     # Add Godot to system PATH permanently (requires admin)
                     if ($isAdmin) {
                         try {
@@ -1816,7 +2240,7 @@ try {
                         Write-ColorOutput "Note: Running without admin privileges. Godot was not added to system PATH." "Yellow"
                         Write-ColorOutput "You may want to add '$godotInstallDir' to your PATH manually." "Yellow"
                     }
-                    
+
                     # Verify installation
                     if (Test-Path $targetPath) {
                         try {
@@ -1832,23 +2256,23 @@ try {
                     Write-ColorOutput "Error: Could not find Godot executable in the extracted files" "Red"
                     Write-ColorOutput "Installation failed. You may need to install Godot manually." "Red"
                 }
-                
+
                 # Clean up temporary files
                 Write-ColorOutput "Cleaning up temporary files..." "Gray"
                 if (Test-Path $godotTempExtractPath) {
                     Remove-Item $godotTempExtractPath -Recurse -Force -ErrorAction SilentlyContinue
                 }
             }
-            
+
             # Always clean up the ZIP file
             if (Test-Path $godotZipPath) {
                 Remove-Item $godotZipPath -Force -ErrorAction SilentlyContinue
             }
-            
+
         } catch {
             Write-ColorOutput "Error installing Godot: $_" "Red"
             Write-ColorOutput "You may need to install Godot manually from: https://godotengine.org/download" "Yellow"
-            
+
             # Clean up on error
             if (Test-Path $godotZipPath) {
                 Remove-Item $godotZipPath -Force -ErrorAction SilentlyContinue
@@ -1858,13 +2282,13 @@ try {
             }
         }
     }
-    
+
     # Create desktop shortcut if Godot is installed and we have admin rights
     if ($godotInstalled -and $isAdmin) {
         try {
             $desktopPath = [Environment]::GetFolderPath("CommonDesktopDirectory")
             $shortcutPath = "$desktopPath\Godot.lnk"
-            
+
             if (-not (Test-Path $shortcutPath)) {
                 $WshShell = New-Object -comObject WScript.Shell
                 $Shortcut = $WshShell.CreateShortcut($shortcutPath)
@@ -1878,7 +2302,7 @@ try {
             Write-ColorOutput "Could not create desktop shortcut: $_" "Yellow"
         }
     }
-    
+
 } catch {
     Write-ColorOutput "Error during Godot installation: $_" "Red"
     Write-ColorOutput "Continuing with installation..." "Yellow"
@@ -1902,13 +2326,13 @@ try {
             # Install uv using the official installer script
             # Using the standard uv installation pattern: Invoke-RestMethod pipes to Invoke-Expression
             Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression
-            
+
             # Refresh PATH to include uv
             $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-            
+
             # Wait a moment for PATH to propagate
             Start-Sleep -Seconds 2
-            
+
             # Verify uv is now available
             if (Test-CommandExists "uv") {
                 Write-ColorOutput "uv installed successfully!" "Green"
@@ -1928,10 +2352,10 @@ try {
     if ($uvInstalled -or (Test-CommandExists "uv")) {
         # Refresh PATH to ensure uv is available
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-        
+
         # Wait a moment for PATH to propagate
         Start-Sleep -Seconds 2
-        
+
         # Check if Python 3.11 is already installed via uv
         $python311Installed = $false
         try {
@@ -1946,24 +2370,24 @@ try {
         } catch {
             # If uv command fails, we'll try to install
         }
-        
+
         if (-not $python311Installed) {
             Write-ColorOutput "Installing Python 3.11 via uv..." "Yellow"
             try {
                 if (Test-CommandExists "uv") {
                     # Install Python 3.11 (uv will install the latest 3.11.x version)
                     $installResult = uv python install 3.11 2>&1 | Out-String
-                    
+
                     if ($LASTEXITCODE -eq 0) {
                         Write-ColorOutput "Python 3.11 installed successfully via uv!" "Green"
-                        
+
                         # Pin Python 3.11 as the default version
                         uv python pin 3.11 2>&1 | Out-Null
                         Write-ColorOutput "Python 3.11 set as default version." "Green"
-                        
+
                         # Refresh PATH again
                         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-                        
+
                         # Verify installation
                         Start-Sleep -Seconds 2
                         if (Test-CommandExists "python") {
@@ -2021,16 +2445,10 @@ Write-ColorOutput "2. Open the cloned repository folder: $CloneDirectory" "White
 Write-ColorOutput "3. Review the .cursor folder for rules and configuration" "White"
 Write-ColorOutput "4. Install any additional MCP servers as needed" "White"
 Write-ColorOutput "5. Godot is available at 'C:\Program Files\Godot\Godot.exe' or from the desktop shortcut" "White"
-Write-ColorOutput "6. If uv/Python was just installed, restart your terminal for PATH changes to take effect" "White"
+Write-ColorOutput "6. Run 'claude' in your terminal to start Claude Code and authenticate" "White"
+Write-ColorOutput "7. If uv/Python was just installed, restart your terminal for PATH changes to take effect" "White"
 Write-Host ""
 
-# Launch Cursor if installed
-if (Test-Path $cursorPath) {
-    Write-ColorOutput "Launching Cursor..." "Green"
-    Start-Process $cursorPath -ArgumentList $CloneDirectory
-}
-
-Write-Host ""
 Write-ColorOutput "Setup complete!" "Green"
 
 # Wait for user input unless -NoWait flag is set
@@ -2039,4 +2457,3 @@ if (-not $NoWait) {
     Write-ColorOutput "Press Enter to exit..." "Gray"
     $null = Read-Host
 }
-
