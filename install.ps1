@@ -272,7 +272,8 @@ Write-Host ""
 $stepNumber++
 Write-ColorOutput "Step ${stepNumber}: Installing IDE extensions..." "Cyan"
 $extensions = @(
-    "geequlim.godot-tools"
+    "geequlim.godot-tools",
+    "anthropic.claude-code"
 )
 
 # Install extensions for Cursor
@@ -1032,6 +1033,127 @@ function Convert-MCPToCursorJson {
     }
 }
 
+# Function to convert unified YAML MCP config to Claude Desktop JSON format
+function Convert-MCPToClaudeJson {
+    param(
+        [string]$YamlConfigPath
+    )
+
+    if (-not (Test-Path $YamlConfigPath)) {
+        Write-ColorOutput "Unified MCP config not found at: $YamlConfigPath" "Yellow"
+        return $null
+    }
+
+    if (-not (Test-CommandExists "yq")) {
+        Write-ColorOutput "yq is not available. Cannot convert MCP configuration." "Red"
+        return $null
+    }
+
+    try {
+        # Read servers from YAML
+        $yqOutput = yq eval '.servers' $YamlConfigPath -o json 2>&1
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-ColorOutput "Warning: Could not parse unified MCP config: $yqOutput" "Yellow"
+            return $null
+        }
+
+        $servers = $yqOutput | ConvertFrom-Json
+
+        if ($null -eq $servers) {
+            return $null
+        }
+
+        if ($servers -isnot [Array]) {
+            $servers = @($servers)
+        }
+
+        # Build Claude Desktop JSON structure
+        $mcpServers = @{}
+
+        foreach ($server in $servers) {
+            # Skip disabled servers
+            if ($server.enabled -eq $false) {
+                continue
+            }
+
+            # Check if server should be included for Claude Desktop
+            # If agents field is specified, only include if "claude" is in the list
+            # If agents field is not specified, include for all agents (backward compatible)
+            if ($server.agents) {
+                $agentsList = $server.agents
+                if ($agentsList -isnot [Array]) {
+                    $agentsList = @($agentsList)
+                }
+                if ($agentsList -notcontains "claude") {
+                    continue
+                }
+            }
+
+            $serverName = $server.name
+            if ([string]::IsNullOrEmpty($serverName)) {
+                continue
+            }
+
+            $serverConfig = @{}
+
+            # Handle URL-based MCPs
+            if ($server.url) {
+                $serverConfig.url = $server.url
+                # URL-based configs don't need path normalization
+                $normalizedConfig = [PSCustomObject]$serverConfig
+            }
+            # Handle command-based MCPs
+            elseif ($server.command) {
+                $serverConfig.command = $server.command
+
+                if ($server.args) {
+                    $serverConfig.args = $server.args
+                }
+
+                if ($server.env) {
+                    $serverConfig.env = $server.env
+                }
+
+                # Normalize paths in the config (only for command-based configs)
+                $serverConfigObj = [PSCustomObject]$serverConfig
+                $normalizedConfig = Convert-MCPPaths -McpServerConfig $serverConfigObj
+            } else {
+                # No command or url, skip this server
+                Write-ColorOutput "  Warning: Server '$serverName' has neither 'command' nor 'url', skipping" "Yellow"
+                continue
+            }
+
+            # Convert back to hashtable for JSON serialization
+            $finalConfig = @{}
+            foreach ($prop in $normalizedConfig.PSObject.Properties) {
+                # If the property is env (PSCustomObject), convert it to hashtable for proper JSON serialization
+                if ($prop.Name -eq "env" -and $prop.Value -is [PSCustomObject]) {
+                    $envHashtable = @{}
+                    foreach ($envKey in $prop.Value.PSObject.Properties.Name) {
+                        $envHashtable[$envKey] = $prop.Value.$envKey
+                    }
+                    $finalConfig[$prop.Name] = $envHashtable
+                } else {
+                    $finalConfig[$prop.Name] = $prop.Value
+                }
+            }
+
+            $mcpServers[$serverName] = $finalConfig
+        }
+
+        # Create the JSON structure (Claude Desktop uses same format as Cursor)
+        $result = @{
+            mcpServers = $mcpServers
+        }
+
+        return $result
+    } catch {
+        Write-ColorOutput "Error converting MCP config to Claude Desktop JSON: $_" "Red"
+        return $null
+    }
+}
+
 # Function to convert unified YAML MCP config to Codex TOML format
 function Convert-MCPToCodexToml {
     param(
@@ -1618,6 +1740,36 @@ try {
                     }
                 } catch {
                     Write-ColorOutput "Warning: Could not convert unified config to Codex TOML: $_" "Yellow"
+                }
+            }
+
+            # Configure Claude Desktop MCP (JSON format)
+            $claudeConfigDir = "$env:APPDATA\Claude"
+            $claudeConfigPath = "$claudeConfigDir\claude_desktop_config.json"
+
+            # Ensure Claude directory exists
+            if (-not (Test-Path $claudeConfigDir)) {
+                New-Item -ItemType Directory -Path $claudeConfigDir -Force | Out-Null
+                Write-ColorOutput "Created Claude directory at: $claudeConfigDir" "Gray"
+            }
+
+            if (Test-Path $claudeConfigPath) {
+                Write-ColorOutput "Found existing Claude Desktop config at: $claudeConfigPath" "Gray"
+            }
+
+            if ($useUnifiedConfig) {
+                # Use unified config - convert to Claude Desktop JSON
+                try {
+                    $claudeJsonConfig = Convert-MCPToClaudeJson -YamlConfigPath $unifiedMcpConfigPath
+                    if ($null -ne $claudeJsonConfig) {
+                        # Create temporary JSON file for merging
+                        $tempClaudeJsonPath = "$env:TEMP\claude-mcp-temp.json"
+                        $claudeJsonConfig | ConvertTo-Json -Depth 10 | Set-Content $tempClaudeJsonPath -Encoding UTF8
+                        Merge-MCPConfig -ExistingConfigPath $claudeConfigPath -NewConfigPath $tempClaudeJsonPath
+                        Remove-Item $tempClaudeJsonPath -ErrorAction SilentlyContinue
+                    }
+                } catch {
+                    Write-ColorOutput "Warning: Could not convert unified config to Claude Desktop JSON: $_" "Yellow"
                 }
             }
         }
