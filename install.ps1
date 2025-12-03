@@ -1362,7 +1362,8 @@ function Merge-ClaudeCodeConfig {
             }
 
             # Write the merged output back to the config file using yq for consistent encoding
-            $mergedOutput | yq eval '.' -o json -P | Out-File -FilePath $ExistingConfigPath -Encoding ascii -NoNewline
+            # Use -I 2 for 2-space indentation (pretty-print)
+            $mergedOutput | yq eval '.' -o json -I 2 | Out-File -FilePath $ExistingConfigPath -Encoding ascii -NoNewline
 
             # Report which servers were added
             foreach ($serverName in $serversToAdd.Keys) {
