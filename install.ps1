@@ -245,38 +245,25 @@ if (Test-Path $vscodePath) {
 }
 Write-Host ""
 
-# Install Claude Code
+# Install Claude (Desktop App)
+Write-ColorOutput "  Installing Claude..." "Yellow"
+$claudeInstalled = Install-WithWinget "Anthropic.Claude" "Claude"
+if ($claudeInstalled) {
+    # Refresh PATH
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+}
+Write-Host ""
+
+# Install Claude Code (CLI)
 Write-ColorOutput "  Installing Claude Code..." "Yellow"
-$claudeCodeInstalled = $false
-if (Test-CommandExists "claude") {
-    Write-ColorOutput "  Claude Code is already installed." "Yellow"
-    $claudeVersion = claude --version 2>&1
-    Write-ColorOutput "  Current version: $claudeVersion" "Gray"
-    $claudeCodeInstalled = $true
-} else {
-    try {
-        # Install Claude Code using the official PowerShell installer
-        Invoke-RestMethod https://claude.ai/install.ps1 | Invoke-Expression
-
-        # Refresh PATH to include Claude Code
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-
-        # Wait a moment for PATH to propagate
-        Start-Sleep -Seconds 2
-
-        # Verify Claude Code is now available
-        if (Test-CommandExists "claude") {
-            Write-ColorOutput "  Claude Code installed successfully!" "Green"
-            $claudeVersion = claude --version 2>&1
-            Write-ColorOutput "  Version: $claudeVersion" "Gray"
-            $claudeCodeInstalled = $true
-        } else {
-            Write-ColorOutput "  Warning: Claude Code installed but not yet available in PATH. You may need to restart your terminal." "Yellow"
-            $claudeCodeInstalled = $true  # Assume it's installed, just not in PATH yet
-        }
-    } catch {
-        Write-ColorOutput "  Error installing Claude Code: $_" "Red"
-        Write-ColorOutput "  You can install Claude Code manually by running: irm https://claude.ai/install.ps1 | iex" "Yellow"
+$claudeCodeInstalled = Install-WithWinget "Anthropic.ClaudeCode" "Claude Code"
+if ($claudeCodeInstalled) {
+    # Refresh PATH
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+    Start-Sleep -Seconds 2
+    if (Test-CommandExists "claude") {
+        $claudeVersion = claude --version 2>&1
+        Write-ColorOutput "  Version: $claudeVersion" "Gray"
     }
 }
 Write-Host ""
