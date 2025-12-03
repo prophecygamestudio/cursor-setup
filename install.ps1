@@ -2061,13 +2061,6 @@ Write-ColorOutput "6. Run 'claude' in your terminal to start Claude Code and aut
 Write-ColorOutput "7. If uv/Python was just installed, restart your terminal for PATH changes to take effect" "White"
 Write-Host ""
 
-# Launch Cursor if installed
-if (Test-Path $cursorPath) {
-    Write-ColorOutput "Launching Cursor..." "Green"
-    Start-Process $cursorPath -ArgumentList $CloneDirectory
-}
-
-Write-Host ""
 Write-ColorOutput "Setup complete!" "Green"
 
 # Wait for user input unless -NoWait flag is set
