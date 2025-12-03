@@ -1333,35 +1333,36 @@ function Merge-ClaudeCodeConfig {
             return $true
         }
 
-        # Create a temporary JSON file with just the new servers to merge
-        $tempJsonPath = [System.IO.Path]::GetTempFileName() + ".json"
+        # Create a temporary JSON file with just the new servers to merge using yq
+        $tempJsonPath = [System.IO.Path]::GetTempFileName() -replace '\.tmp$', '.json'
         try {
-            # Build the merge payload with only new servers
+            # Build the merge payload with only new servers and pipe through yq to create clean JSON
             $mergePayload = @{ mcpServers = $serversToAdd }
             $mergeJson = $mergePayload | ConvertTo-Json -Depth 10 -Compress
-            # Use .NET to write UTF8 without BOM (PowerShell's -Encoding UTF8 adds BOM which yq can't parse)
-            [System.IO.File]::WriteAllText($tempJsonPath, $mergeJson, [System.Text.UTF8Encoding]::new($false))
 
-            # Use yq to deep merge: existing config * new servers
-            # The * operator does a deep merge where new values are added but existing keys are preserved
-            # We use 'load()' to load the temp file and merge it with the existing config
+            # Use yq to create the temp file (ensures proper encoding and valid JSON)
+            $mergeJson | yq eval '.' -o json -P | Out-File -FilePath $tempJsonPath -Encoding ascii -NoNewline
+
+            if ($LASTEXITCODE -ne 0) {
+                Write-ColorOutput "Error creating temp JSON file with yq" "Red"
+                return $false
+            }
+
+            # Convert paths to forward slashes for yq
             $tempJsonPathForYq = $tempJsonPath -replace '\\', '/'
             $existingPathForYq = $ExistingConfigPath -replace '\\', '/'
 
-            # yq expression: load existing, then deep merge mcpServers from new file
-            # Using eval-all with select to merge two files
-            # Note: Use single-line expression to avoid CRLF issues on Windows
-            $yqExpr = 'select(fileIndex == 0) * {"mcpServers": (select(fileIndex == 0).mcpServers * select(fileIndex == 1).mcpServers)}'
-            $mergedOutput = yq eval-all $yqExpr $existingPathForYq $tempJsonPathForYq -o json 2>&1
+            # Use yq to deep merge: existing config with new mcpServers added
+            # The * operator does a deep merge where new values are added
+            $mergedOutput = yq eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' $existingPathForYq $tempJsonPathForYq -o json 2>&1
 
             if ($LASTEXITCODE -ne 0) {
                 Write-ColorOutput "Error during yq merge: $mergedOutput" "Red"
                 return $false
             }
 
-            # Write the merged output back to the config file (UTF8 without BOM)
-            $mergedContent = $mergedOutput -join "`n"
-            [System.IO.File]::WriteAllText($ExistingConfigPath, $mergedContent, [System.Text.UTF8Encoding]::new($false))
+            # Write the merged output back to the config file using yq for consistent encoding
+            $mergedOutput | yq eval '.' -o json -P | Out-File -FilePath $ExistingConfigPath -Encoding ascii -NoNewline
 
             # Report which servers were added
             foreach ($serverName in $serversToAdd.Keys) {
