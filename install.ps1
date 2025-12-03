@@ -245,17 +245,15 @@ if (Test-Path $vscodePath) {
 }
 Write-Host ""
 
-# Step: Install Claude Code
-$stepNumber++
-Write-ColorOutput "Step ${stepNumber}: Installing Claude Code..." "Cyan"
+# Install Claude Code
+Write-ColorOutput "  Installing Claude Code..." "Yellow"
 $claudeCodeInstalled = $false
 if (Test-CommandExists "claude") {
-    Write-ColorOutput "Claude Code is already installed." "Yellow"
+    Write-ColorOutput "  Claude Code is already installed." "Yellow"
     $claudeVersion = claude --version 2>&1
-    Write-ColorOutput "Current version: $claudeVersion" "Gray"
+    Write-ColorOutput "  Current version: $claudeVersion" "Gray"
     $claudeCodeInstalled = $true
 } else {
-    Write-ColorOutput "Installing Claude Code..." "Yellow"
     try {
         # Install Claude Code using the official PowerShell installer
         Invoke-RestMethod https://claude.ai/install.ps1 | Invoke-Expression
@@ -268,18 +266,17 @@ if (Test-CommandExists "claude") {
 
         # Verify Claude Code is now available
         if (Test-CommandExists "claude") {
-            Write-ColorOutput "Claude Code installed successfully!" "Green"
+            Write-ColorOutput "  Claude Code installed successfully!" "Green"
             $claudeVersion = claude --version 2>&1
-            Write-ColorOutput "Version: $claudeVersion" "Gray"
+            Write-ColorOutput "  Version: $claudeVersion" "Gray"
             $claudeCodeInstalled = $true
         } else {
-            Write-ColorOutput "Warning: Claude Code installed but not yet available in PATH. You may need to restart your terminal." "Yellow"
-            Write-ColorOutput "Continuing with installation..." "Yellow"
+            Write-ColorOutput "  Warning: Claude Code installed but not yet available in PATH. You may need to restart your terminal." "Yellow"
             $claudeCodeInstalled = $true  # Assume it's installed, just not in PATH yet
         }
     } catch {
-        Write-ColorOutput "Error installing Claude Code: $_" "Red"
-        Write-ColorOutput "You can install Claude Code manually by running: irm https://claude.ai/install.ps1 | iex" "Yellow"
+        Write-ColorOutput "  Error installing Claude Code: $_" "Red"
+        Write-ColorOutput "  You can install Claude Code manually by running: irm https://claude.ai/install.ps1 | iex" "Yellow"
     }
 }
 Write-Host ""
