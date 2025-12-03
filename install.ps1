@@ -1299,7 +1299,8 @@ function Merge-ClaudeCodeConfig {
         # Create the config file with empty object if it doesn't exist
         if (-not (Test-Path $ExistingConfigPath)) {
             Write-ColorOutput "Creating new Claude Code config at: $ExistingConfigPath" "Gray"
-            '{}' | Set-Content $ExistingConfigPath -Encoding UTF8
+            # Use .NET to write UTF8 without BOM (PowerShell's -Encoding UTF8 adds BOM which yq can't parse)
+            [System.IO.File]::WriteAllText($ExistingConfigPath, '{}', [System.Text.UTF8Encoding]::new($false))
         } else {
             Write-ColorOutput "Found existing Claude Code config at: $ExistingConfigPath" "Gray"
         }
@@ -1338,7 +1339,8 @@ function Merge-ClaudeCodeConfig {
             # Build the merge payload with only new servers
             $mergePayload = @{ mcpServers = $serversToAdd }
             $mergeJson = $mergePayload | ConvertTo-Json -Depth 10 -Compress
-            $mergeJson | Set-Content $tempJsonPath -Encoding UTF8
+            # Use .NET to write UTF8 without BOM (PowerShell's -Encoding UTF8 adds BOM which yq can't parse)
+            [System.IO.File]::WriteAllText($tempJsonPath, $mergeJson, [System.Text.UTF8Encoding]::new($false))
 
             # Use yq to deep merge: existing config * new servers
             # The * operator does a deep merge where new values are added but existing keys are preserved
@@ -1357,8 +1359,9 @@ function Merge-ClaudeCodeConfig {
                 return $false
             }
 
-            # Write the merged output back to the config file
-            $mergedOutput | Set-Content $ExistingConfigPath -Encoding UTF8 -ErrorAction Stop
+            # Write the merged output back to the config file (UTF8 without BOM)
+            $mergedContent = $mergedOutput -join "`n"
+            [System.IO.File]::WriteAllText($ExistingConfigPath, $mergedContent, [System.Text.UTF8Encoding]::new($false))
 
             # Report which servers were added
             foreach ($serverName in $serversToAdd.Keys) {
