@@ -246,8 +246,8 @@ if (Test-Path $vscodePath) {
 Write-Host ""
 
 # Install Claude (Desktop App)
-Write-ColorOutput "  Installing Claude..." "Yellow"
-$claudeInstalled = Install-WithWinget "Anthropic.Claude" "Claude"
+Write-ColorOutput "  Installing Claude Desktop..." "Yellow"
+$claudeInstalled = Install-WithWinget "Anthropic.Claude" "Claude Desktop"
 if ($claudeInstalled) {
     # Refresh PATH
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
@@ -1276,8 +1276,9 @@ function Convert-MCPToClaudeCodeJson {
     }
 }
 
-# Function to merge Claude Code MCP configuration
+# Function to merge Claude Code MCP configuration using yq
 # Claude Code stores config in ~/.claude.json which may have other settings we need to preserve
+# Uses yq for graceful deep merging that preserves all existing settings
 function Merge-ClaudeCodeConfig {
     param(
         [string]$ExistingConfigPath,
@@ -1289,84 +1290,89 @@ function Merge-ClaudeCodeConfig {
         return $false
     }
 
+    if (-not (Test-CommandExists "yq")) {
+        Write-ColorOutput "yq is not available. Cannot merge Claude Code configuration." "Red"
+        return $false
+    }
+
     try {
-        $existingConfig = @{}
-        $existingMcpServers = @{}
-
-        # Read existing config if it exists
-        if (Test-Path $ExistingConfigPath) {
-            try {
-                $existingContent = Get-Content $ExistingConfigPath -Raw -ErrorAction Stop
-                $jsonObj = $existingContent | ConvertFrom-Json -ErrorAction Stop
-                Write-ColorOutput "Found existing Claude Code config at: $ExistingConfigPath" "Gray"
-
-                # Convert PSCustomObject to hashtable for easier manipulation
-                foreach ($prop in $jsonObj.PSObject.Properties) {
-                    if ($prop.Name -eq "mcpServers" -and $prop.Value) {
-                        foreach ($serverProp in $prop.Value.PSObject.Properties) {
-                            $existingMcpServers[$serverProp.Name] = $serverProp.Value
-                        }
-                    } else {
-                        $existingConfig[$prop.Name] = $prop.Value
-                    }
-                }
-            } catch {
-                Write-ColorOutput "Warning: Could not parse existing Claude Code config, creating new file" "Yellow"
-                $existingConfig = @{}
-                $existingMcpServers = @{}
-            }
-        } else {
+        # Create the config file with empty object if it doesn't exist
+        if (-not (Test-Path $ExistingConfigPath)) {
             Write-ColorOutput "Creating new Claude Code config at: $ExistingConfigPath" "Gray"
+            '{}' | Set-Content $ExistingConfigPath -Encoding UTF8
+        } else {
+            Write-ColorOutput "Found existing Claude Code config at: $ExistingConfigPath" "Gray"
         }
 
-        # Merge new MCP servers
+        # Get list of existing MCP servers for comparison
+        $existingServers = @()
+        $existingServersOutput = yq eval '.mcpServers | keys | .[]' $ExistingConfigPath -o json 2>&1
+        if ($LASTEXITCODE -eq 0 -and $existingServersOutput) {
+            $existingServers = $existingServersOutput | ForEach-Object { $_.Trim('"') }
+        }
+
+        # Convert new MCP config to JSON for yq to process
         $newMcpServers = $NewMcpConfig.mcpServers
         $addedCount = 0
+        $serversToAdd = @{}
 
         foreach ($serverName in $newMcpServers.Keys) {
-            if (-not $existingMcpServers.ContainsKey($serverName)) {
-                $existingMcpServers[$serverName] = $newMcpServers[$serverName]
-                $addedCount++
-                Write-ColorOutput "  Added MCP server to Claude Code: $serverName" "Green"
-            } else {
+            if ($existingServers -contains $serverName) {
                 Write-ColorOutput "  MCP server '$serverName' already exists in Claude Code config, preserving existing configuration" "Yellow"
-            }
-        }
-
-        if ($addedCount -eq 0 -and $newMcpServers.Count -gt 0) {
-            Write-ColorOutput "All required MCP servers are already configured in Claude Code" "Green"
-        }
-
-        # Build the final config object
-        $finalConfig = New-Object PSObject
-
-        # Add existing non-MCP properties first
-        foreach ($key in $existingConfig.Keys) {
-            $finalConfig | Add-Member -MemberType NoteProperty -Name $key -Value $existingConfig[$key]
-        }
-
-        # Add mcpServers
-        $mcpServersObj = New-Object PSObject
-        foreach ($serverName in $existingMcpServers.Keys) {
-            $serverConfig = $existingMcpServers[$serverName]
-            # If it's already a PSCustomObject, use it directly; otherwise convert
-            if ($serverConfig -is [PSCustomObject]) {
-                $mcpServersObj | Add-Member -MemberType NoteProperty -Name $serverName -Value $serverConfig
             } else {
-                $serverObj = New-Object PSObject
-                foreach ($propKey in $serverConfig.Keys) {
-                    $serverObj | Add-Member -MemberType NoteProperty -Name $propKey -Value $serverConfig[$propKey]
-                }
-                $mcpServersObj | Add-Member -MemberType NoteProperty -Name $serverName -Value $serverObj
+                $serversToAdd[$serverName] = $newMcpServers[$serverName]
+                $addedCount++
             }
         }
-        $finalConfig | Add-Member -MemberType NoteProperty -Name "mcpServers" -Value $mcpServersObj
 
-        # Write the config file
-        $jsonContent = $finalConfig | ConvertTo-Json -Depth 10
-        $jsonContent | Set-Content $ExistingConfigPath -Encoding UTF8 -ErrorAction Stop
-        Write-ColorOutput "Claude Code configuration updated successfully!" "Green"
-        return $true
+        if ($addedCount -eq 0) {
+            if ($newMcpServers.Count -gt 0) {
+                Write-ColorOutput "All required MCP servers are already configured in Claude Code" "Green"
+            }
+            return $true
+        }
+
+        # Create a temporary JSON file with just the new servers to merge
+        $tempJsonPath = [System.IO.Path]::GetTempFileName() + ".json"
+        try {
+            # Build the merge payload with only new servers
+            $mergePayload = @{ mcpServers = $serversToAdd }
+            $mergeJson = $mergePayload | ConvertTo-Json -Depth 10 -Compress
+            $mergeJson | Set-Content $tempJsonPath -Encoding UTF8
+
+            # Use yq to deep merge: existing config * new servers
+            # The * operator does a deep merge where new values are added but existing keys are preserved
+            # We use 'load()' to load the temp file and merge it with the existing config
+            $tempJsonPathForYq = $tempJsonPath -replace '\\', '/'
+            $existingPathForYq = $ExistingConfigPath -replace '\\', '/'
+
+            # yq expression: load existing, then deep merge mcpServers from new file
+            # Using eval-all with select to merge two files
+            $mergedOutput = yq eval-all "
+                select(fileIndex == 0) * {`"mcpServers`": (select(fileIndex == 0).mcpServers * select(fileIndex == 1).mcpServers)}
+            " $existingPathForYq $tempJsonPathForYq -o json 2>&1
+
+            if ($LASTEXITCODE -ne 0) {
+                Write-ColorOutput "Error during yq merge: $mergedOutput" "Red"
+                return $false
+            }
+
+            # Write the merged output back to the config file
+            $mergedOutput | Set-Content $ExistingConfigPath -Encoding UTF8 -ErrorAction Stop
+
+            # Report which servers were added
+            foreach ($serverName in $serversToAdd.Keys) {
+                Write-ColorOutput "  Added MCP server to Claude Code: $serverName" "Green"
+            }
+
+            Write-ColorOutput "Claude Code configuration updated successfully!" "Green"
+            return $true
+        } finally {
+            # Clean up temp file
+            if (Test-Path $tempJsonPath) {
+                Remove-Item $tempJsonPath -Force -ErrorAction SilentlyContinue
+            }
+        }
     } catch {
         Write-ColorOutput "Error merging Claude Code config: $_" "Red"
         return $false
