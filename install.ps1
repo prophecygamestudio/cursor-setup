@@ -439,7 +439,6 @@ Write-ColorOutput "Step ${stepNumber}: Installing IDEs..." "Cyan"
 Write-Host ""
 
 # Install Cursor
-Write-ColorOutput "  Installing Cursor..." "Yellow"
 $cursorPath = "$env:LOCALAPPDATA\Programs\cursor\Cursor.exe"
 $cursorInstalled = Install-WithWinget "Anysphere.Cursor" "Cursor"
 if ($cursorInstalled) {
@@ -449,7 +448,6 @@ if ($cursorInstalled) {
 Write-Host ""
 
 # Install Visual Studio Code
-Write-ColorOutput "  Installing Visual Studio Code..." "Yellow"
 $vscodePath = "$env:LOCALAPPDATA\Programs\Microsoft VS Code\Code.exe"
 
 $vscodeInstalled = Install-WithWinget "Microsoft.VisualStudioCode" "Visual Studio Code"
@@ -459,7 +457,6 @@ if ($vscodeInstalled) {
 Write-Host ""
 
 # Install Claude (Desktop App)
-Write-ColorOutput "  Installing Claude Desktop..." "Yellow"
 $claudeInstalled = Install-WithWinget "Anthropic.Claude" "Claude Desktop"
 if ($claudeInstalled) {
     # Refresh PATH
@@ -468,7 +465,6 @@ if ($claudeInstalled) {
 Write-Host ""
 
 # Install Claude Code (CLI)
-Write-ColorOutput "  Installing Claude Code..." "Yellow"
 $claudeCodeInstalled = Install-WithWinget "Anthropic.ClaudeCode" "Claude Code"
 if ($claudeCodeInstalled) {
     # Refresh PATH
@@ -482,7 +478,6 @@ if ($claudeCodeInstalled) {
 Write-Host ""
 
 # Install Zed
-Write-ColorOutput "  Installing Zed..." "Yellow"
 $zedInstalled = Install-WithWinget "ZedIndustries.Zed" "Zed"
 if ($zedInstalled) {
     # Refresh PATH
@@ -491,7 +486,6 @@ if ($zedInstalled) {
 Write-Host ""
 
 # Install Google Antigravity
-Write-ColorOutput "  Installing Google Antigravity..." "Yellow"
 $antigravityInstalled = Install-WithWinget "Google.Antigravity" "Google Antigravity"
 if ($antigravityInstalled) {
     # Refresh PATH
