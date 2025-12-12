@@ -441,48 +441,20 @@ Write-Host ""
 # Install Cursor
 Write-ColorOutput "  Installing Cursor..." "Yellow"
 $cursorPath = "$env:LOCALAPPDATA\Programs\cursor\Cursor.exe"
-$cursorInstalled = $false
-if (Test-Path $cursorPath) {
-    Write-ColorOutput "  Cursor is already installed." "Yellow"
-    $cursorInstalled = $true
-} else {
-    $cursorInstalled = Install-WithWinget "Anysphere.Cursor" "Cursor"
-    if ($cursorInstalled) {
-        # Refresh PATH
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-        # Wait a moment for installation to complete
-        Start-Sleep -Seconds 2
-        # Verify installation
-        if (Test-Path $cursorPath) {
-            Write-ColorOutput "  Cursor installation verified!" "Green"
-        } else {
-            Write-ColorOutput "  Note: Cursor may be installed but path verification failed. Try launching from Start Menu." "Yellow"
-        }
-    }
+$cursorInstalled = Install-WithWinget "Anysphere.Cursor" "Cursor"
+if ($cursorInstalled) {
+    # Refresh PATH
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 }
 Write-Host ""
 
 # Install Visual Studio Code
 Write-ColorOutput "  Installing Visual Studio Code..." "Yellow"
 $vscodePath = "$env:LOCALAPPDATA\Programs\Microsoft VS Code\Code.exe"
-$vscodeInstalled = $false
-if (Test-Path $vscodePath) {
-    Write-ColorOutput "  Visual Studio Code is already installed." "Yellow"
-    $vscodeInstalled = $true
-} else {
-    $vscodeInstalled = Install-WithWinget "Microsoft.VisualStudioCode" "Visual Studio Code"
-    if ($vscodeInstalled) {
-        # Refresh PATH
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-        # Wait a moment for installation to complete
-        Start-Sleep -Seconds 2
-        # Verify installation
-        if (Test-Path $vscodePath) {
-            Write-ColorOutput "  Visual Studio Code installation verified!" "Green"
-        } else {
-            Write-ColorOutput "  Note: Visual Studio Code may be installed but path verification failed. Try launching from Start Menu." "Yellow"
-        }
-    }
+
+$vscodeInstalled = Install-WithWinget "Microsoft.VisualStudioCode" "Visual Studio Code"
+if ($vscodeInstalled) {
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 }
 Write-Host ""
 
