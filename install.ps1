@@ -293,6 +293,15 @@ if ($zedInstalled) {
 }
 Write-Host ""
 
+# Install Google Antigravity
+Write-ColorOutput "  Installing Google Antigravity..." "Yellow"
+$antigravityInstalled = Install-WithWinget "Google.Antigravity" "Google Antigravity"
+if ($antigravityInstalled) {
+    # Refresh PATH
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+}
+Write-Host ""
+
 # Step: Install IDE extensions
 $stepNumber++
 Write-ColorOutput "Step ${stepNumber}: Installing IDE extensions..." "Cyan"
@@ -1301,6 +1310,131 @@ function Convert-MCPToClaudeCodeJson {
     }
 }
 
+# Function to convert unified YAML MCP config to Antigravity JSON format
+# Antigravity stores MCPs in ~/.gemini/antigravity/mcp_config.json under the "mcpServers" key
+function Convert-MCPToAntigravityJson {
+    param(
+        [string]$YamlConfigPath
+    )
+
+    if (-not (Test-Path $YamlConfigPath)) {
+        Write-ColorOutput "Unified MCP config not found at: $YamlConfigPath" "Yellow"
+        return $null
+    }
+
+    if (-not (Test-CommandExists "yq")) {
+        Write-ColorOutput "yq is not available. Cannot convert MCP configuration." "Red"
+        return $null
+    }
+
+    try {
+        # Read servers from YAML
+        $yqOutput = yq eval '.servers' $YamlConfigPath -o json 2>&1
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-ColorOutput "Warning: Could not parse unified MCP config: $yqOutput" "Yellow"
+            return $null
+        }
+
+        $servers = $yqOutput | ConvertFrom-Json
+
+        if ($null -eq $servers) {
+            return $null
+        }
+
+        if ($servers -isnot [Array]) {
+            $servers = @($servers)
+        }
+
+        # Build Antigravity JSON structure
+        $mcpServers = @{}
+
+        foreach ($server in $servers) {
+            # Skip disabled servers
+            if ($server.enabled -eq $false) {
+                continue
+            }
+
+            # Check if server should be included for Antigravity
+            # If agents field is specified, only include if "antigravity" is in the list
+            # If agents field is not specified, include for all agents (backward compatible)
+            if ($server.agents) {
+                $agentsList = $server.agents
+                if ($agentsList -isnot [Array]) {
+                    $agentsList = @($agentsList)
+                }
+                if ($agentsList -notcontains "antigravity") {
+                    continue
+                }
+            }
+
+            $serverName = $server.name
+            if ([string]::IsNullOrEmpty($serverName)) {
+                continue
+            }
+
+            $serverConfig = @{}
+
+            # Handle URL-based MCPs (serverUrl format for Antigravity remote connections)
+            if ($server.url) {
+                $serverConfig.serverUrl = $server.url
+                # Add headers if present
+                if ($server.headers) {
+                    $serverConfig.headers = $server.headers
+                }
+                $normalizedConfig = [PSCustomObject]$serverConfig
+            }
+            # Handle command-based MCPs
+            elseif ($server.command) {
+                $serverConfig.command = $server.command
+
+                if ($server.args) {
+                    $serverConfig.args = $server.args
+                }
+
+                if ($server.env) {
+                    $serverConfig.env = $server.env
+                }
+
+                # Normalize paths in the config (only for command-based configs)
+                $serverConfigObj = [PSCustomObject]$serverConfig
+                $normalizedConfig = Convert-MCPPaths -McpServerConfig $serverConfigObj
+            } else {
+                # No command or url, skip this server
+                Write-ColorOutput "  Warning: Server '$serverName' has neither 'command' nor 'url', skipping" "Yellow"
+                continue
+            }
+
+            # Convert back to hashtable for JSON serialization
+            $finalConfig = @{}
+            foreach ($prop in $normalizedConfig.PSObject.Properties) {
+                # If the property is env or headers (PSCustomObject), convert it to hashtable for proper JSON serialization
+                if (($prop.Name -eq "env" -or $prop.Name -eq "headers") -and $prop.Value -is [PSCustomObject]) {
+                    $propHashtable = @{}
+                    foreach ($propKey in $prop.Value.PSObject.Properties.Name) {
+                        $propHashtable[$propKey] = $prop.Value.$propKey
+                    }
+                    $finalConfig[$prop.Name] = $propHashtable
+                } else {
+                    $finalConfig[$prop.Name] = $prop.Value
+                }
+            }
+
+            $mcpServers[$serverName] = $finalConfig
+        }
+
+        # Create the JSON structure (Antigravity uses mcpServers at root level)
+        $result = @{
+            mcpServers = $mcpServers
+        }
+
+        return $result
+    } catch {
+        Write-ColorOutput "Error converting MCP config to Antigravity JSON: $_" "Red"
+        return $null
+    }
+}
+
 # Function to merge Claude Code MCP configuration using yq
 # Claude Code stores config in ~/.claude.json which may have other settings we need to preserve
 # Uses yq for graceful deep merging that preserves all existing settings
@@ -1405,6 +1539,114 @@ function Merge-ClaudeCodeConfig {
         }
     } catch {
         Write-ColorOutput "Error merging Claude Code config: $_" "Red"
+        return $false
+    }
+}
+
+# Function to merge Antigravity MCP configuration using yq
+# Antigravity stores config in ~/.gemini/antigravity/mcp_config.json
+# Uses yq for graceful deep merging that preserves all existing settings
+function Merge-AntigravityConfig {
+    param(
+        [string]$ExistingConfigPath,
+        [hashtable]$NewMcpConfig
+    )
+
+    if ($null -eq $NewMcpConfig -or $NewMcpConfig.Count -eq 0) {
+        Write-ColorOutput "No new MCP configuration to merge for Antigravity" "Yellow"
+        return $false
+    }
+
+    if (-not (Test-CommandExists "yq")) {
+        Write-ColorOutput "yq is not available. Cannot merge Antigravity configuration." "Red"
+        return $false
+    }
+
+    try {
+        # Create the config file with empty object if it doesn't exist
+        if (-not (Test-Path $ExistingConfigPath)) {
+            Write-ColorOutput "Creating new Antigravity config at: $ExistingConfigPath" "Gray"
+            # Use .NET to write UTF8 without BOM (PowerShell's -Encoding UTF8 adds BOM which yq can't parse)
+            [System.IO.File]::WriteAllText($ExistingConfigPath, '{}', [System.Text.UTF8Encoding]::new($false))
+        } else {
+            Write-ColorOutput "Found existing Antigravity config at: $ExistingConfigPath" "Gray"
+        }
+
+        # Get list of existing MCP servers for comparison
+        $existingServers = @()
+        $existingServersOutput = yq eval '.mcpServers | keys | .[]' $ExistingConfigPath -o json 2>&1
+        if ($LASTEXITCODE -eq 0 -and $existingServersOutput) {
+            $existingServers = $existingServersOutput | ForEach-Object { $_.Trim('"') }
+        }
+
+        # Convert new MCP config to JSON for yq to process
+        $newMcpServers = $NewMcpConfig.mcpServers
+        $addedCount = 0
+        $serversToAdd = @{}
+
+        foreach ($serverName in $newMcpServers.Keys) {
+            if ($existingServers -contains $serverName) {
+                Write-ColorOutput "  MCP server '$serverName' already exists in Antigravity config, preserving existing configuration" "Yellow"
+            } else {
+                $serversToAdd[$serverName] = $newMcpServers[$serverName]
+                $addedCount++
+            }
+        }
+
+        if ($addedCount -eq 0) {
+            if ($newMcpServers.Count -gt 0) {
+                Write-ColorOutput "All required MCP servers are already configured in Antigravity" "Green"
+            }
+            return $true
+        }
+
+        # Create a temporary JSON file with just the new servers to merge using yq
+        $tempJsonPath = [System.IO.Path]::GetTempFileName() -replace '\.tmp$', '.json'
+        try {
+            # Build the merge payload with only new servers and pipe through yq to create clean JSON
+            $mergePayload = @{ mcpServers = $serversToAdd }
+            $mergeJson = $mergePayload | ConvertTo-Json -Depth 10 -Compress
+
+            # Use yq to create the temp file (ensures proper encoding and valid JSON)
+            $mergeJson | yq eval '.' -o json -P | Out-File -FilePath $tempJsonPath -Encoding ascii -NoNewline
+
+            if ($LASTEXITCODE -ne 0) {
+                Write-ColorOutput "Error creating temp JSON file with yq" "Red"
+                return $false
+            }
+
+            # Convert paths to forward slashes for yq
+            $tempJsonPathForYq = $tempJsonPath -replace '\\', '/'
+            $existingPathForYq = $ExistingConfigPath -replace '\\', '/'
+
+            # Use yq to deep merge: existing config with new mcpServers added
+            # The * operator does a deep merge where new values are added
+            $mergedOutput = yq eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' $existingPathForYq $tempJsonPathForYq -o json 2>&1
+
+            if ($LASTEXITCODE -ne 0) {
+                Write-ColorOutput "Error during yq merge: $mergedOutput" "Red"
+                return $false
+            }
+
+            # Write the merged output back to the config file using yq for consistent encoding
+            # Use -P for pretty-print and -I 2 for 2-space indentation
+            $mergedOutput | yq eval '.' -o json -P -I 2 | Out-File -FilePath $ExistingConfigPath -Encoding ascii -NoNewline
+
+            # Report which servers were added
+            foreach ($serverName in $serversToAdd.Keys) {
+                Write-ColorOutput "  Added MCP server to Antigravity: $serverName" "Green"
+            }
+
+            Write-ColorOutput "Antigravity configuration updated successfully!" "Green"
+            return $true
+        } finally {
+            # Clean up temp file
+            if (Test-Path $tempJsonPath) {
+                Remove-Item $tempJsonPath -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {
+        Write-ColorOutput "Error merging Antigravity config: $_" "Red"
         return $false
     }
 }
@@ -2148,6 +2390,32 @@ try {
                     }
                 } catch {
                     Write-ColorOutput "Warning: Could not convert unified config to Claude Code JSON: $_" "Yellow"
+                }
+            }
+
+            # Configure Antigravity MCP (JSON format at ~/.gemini/antigravity/mcp_config.json)
+            $antigravityConfigDir = "$env:USERPROFILE\.gemini\antigravity"
+            $antigravityConfigPath = "$antigravityConfigDir\mcp_config.json"
+
+            # Ensure .gemini/antigravity directory exists
+            if (-not (Test-Path $antigravityConfigDir)) {
+                New-Item -ItemType Directory -Path $antigravityConfigDir -Force | Out-Null
+                Write-ColorOutput "Created .gemini/antigravity directory at: $antigravityConfigDir" "Gray"
+            }
+
+            if (Test-Path $antigravityConfigPath) {
+                Write-ColorOutput "Found existing Antigravity config at: $antigravityConfigPath" "Gray"
+            }
+
+            if ($useUnifiedConfig) {
+                # Use unified config - convert to Antigravity JSON
+                try {
+                    $antigravityJsonConfig = Convert-MCPToAntigravityJson -YamlConfigPath $unifiedMcpConfigPath
+                    if ($null -ne $antigravityJsonConfig) {
+                        Merge-AntigravityConfig -ExistingConfigPath $antigravityConfigPath -NewMcpConfig $antigravityJsonConfig | Out-Null
+                    }
+                } catch {
+                    Write-ColorOutput "Warning: Could not convert unified config to Antigravity JSON: $_" "Yellow"
                 }
             }
         }
