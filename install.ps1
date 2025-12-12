@@ -208,6 +208,231 @@ if (Test-CommandExists "gh") {
 }
 Write-Host ""
 
+# Step: Install nvm and Node.js
+$stepNumber++
+Write-ColorOutput "Step ${stepNumber}: Checking for nvm and Node.js..." "Cyan"
+try {
+    # Check if nvm is installed
+    $nvmInstalled = $false
+    if (Test-CommandExists "nvm") {
+        Write-ColorOutput "nvm (Node Version Manager) is already installed." "Green"
+        $nvmInstalled = $true
+    } else {
+        Write-ColorOutput "Installing nvm-windows (Node Version Manager)..." "Yellow"
+        $nvmInstalled = Install-WithWinget "CoreyButler.NVMforWindows" "nvm-windows"
+
+        if ($nvmInstalled) {
+            # Refresh PATH to include nvm
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+
+            # Wait a moment for PATH to propagate
+            Start-Sleep -Seconds 2
+
+            # Verify nvm is now available
+            if (Test-CommandExists "nvm") {
+                Write-ColorOutput "nvm-windows installed successfully!" "Green"
+            } else {
+                Write-ColorOutput "Warning: nvm installed but not yet available in PATH. You may need to restart your terminal." "Yellow"
+                Write-ColorOutput "Continuing with installation..." "Yellow"
+            }
+        }
+    }
+
+    # Install Node.js LTS using nvm
+    if ($nvmInstalled -or (Test-CommandExists "nvm")) {
+        # Check if Node.js is already installed via nvm
+        if (Test-CommandExists "node") {
+            $nodeVersion = node --version
+            Write-ColorOutput "Node.js is already installed: $nodeVersion" "Green"
+        } else {
+            Write-ColorOutput "Installing Node.js LTS via nvm..." "Yellow"
+            try {
+                # Use nvm to install the latest LTS version
+                $nvmOutput = nvm install lts 2>&1 | Out-String
+                if ($LASTEXITCODE -eq 0) {
+                    # Extract version number from output if available, otherwise try to use 'lts'
+                    $versionMatch = [regex]::Match($nvmOutput, 'v(\d+\.\d+\.\d+)')
+                    if ($versionMatch.Success) {
+                        $installedVersion = $versionMatch.Groups[1].Value
+                        nvm use $installedVersion | Out-Null
+                        Write-ColorOutput "Node.js LTS installed successfully! (v$installedVersion)" "Green"
+                    } else {
+                        # Try using 'lts' as alias, or list and use the latest installed version
+                        nvm use lts 2>&1 | Out-Null
+                        if ($LASTEXITCODE -ne 0) {
+                            # List installed versions and use the latest
+                            $installedVersions = nvm list | Select-String -Pattern 'v\d+\.\d+\.\d+' | ForEach-Object { $_.Matches.Value }
+                            if ($installedVersions.Count -gt 0) {
+                                $latestVersion = $installedVersions[0] -replace 'v', ''
+                                nvm use $latestVersion | Out-Null
+                                Write-ColorOutput "Node.js LTS installed successfully! (v$latestVersion)" "Green"
+                            } else {
+                                Write-ColorOutput "Node.js LTS installed, but could not determine version" "Yellow"
+                            }
+                        } else {
+                            Write-ColorOutput "Node.js LTS installed successfully!" "Green"
+                        }
+                    }
+
+                    # Refresh PATH again after nvm install
+                    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+
+                    # Verify installation
+                    Start-Sleep -Seconds 2
+                    if (Test-CommandExists "node") {
+                        $nodeVersion = node --version
+                        $npmVersion = npm --version
+                        Write-ColorOutput "Node.js version: $nodeVersion" "Gray"
+                        Write-ColorOutput "npm version: $npmVersion" "Gray"
+                    } else {
+                        Write-ColorOutput "Warning: Node.js installed but not yet available in PATH. You may need to restart your terminal." "Yellow"
+                    }
+                } else {
+                    Write-ColorOutput "Failed to install Node.js via nvm. Exit code: $LASTEXITCODE" "Red"
+                    Write-ColorOutput "Output: $nvmOutput" "Yellow"
+                }
+            } catch {
+                Write-ColorOutput "Error installing Node.js via nvm: $_" "Red"
+            }
+        }
+    } else {
+        Write-ColorOutput "nvm is not available. Falling back to direct Node.js installation..." "Yellow"
+        if (-not (Test-CommandExists "node")) {
+            Install-WithWinget "OpenJS.NodeJS.LTS" "Node.js LTS"
+        } else {
+            $nodeVersion = node --version
+            Write-ColorOutput "Node.js is already installed: $nodeVersion" "Green"
+        }
+    }
+} catch {
+    Write-ColorOutput "Error during MCP dependencies setup: $_" "Red"
+    Write-ColorOutput "Continuing with installation..." "Yellow"
+}
+Write-Host ""
+
+# Step: Install uv and Python 3.11
+$stepNumber++
+Write-ColorOutput "Step ${stepNumber}: Installing uv and Python 3.11..." "Cyan"
+try {
+    # Check if uv is already installed
+    $uvInstalled = $false
+    if (Test-CommandExists "uv") {
+        Write-ColorOutput "uv is already installed." "Green"
+        $uvVersion = uv --version 2>&1
+        Write-ColorOutput "Current version: $uvVersion" "Gray"
+        $uvInstalled = $true
+    } else {
+        Write-ColorOutput "Installing uv..." "Yellow"
+        try {
+            # Install uv using the official installer script
+            # Using the standard uv installation pattern: Invoke-RestMethod pipes to Invoke-Expression
+            Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression
+
+            # Refresh PATH to include uv
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+
+            # Wait a moment for PATH to propagate
+            Start-Sleep -Seconds 2
+
+            # Verify uv is now available
+            if (Test-CommandExists "uv") {
+                Write-ColorOutput "uv installed successfully!" "Green"
+                $uvInstalled = $true
+            } else {
+                Write-ColorOutput "Warning: uv installed but not yet available in PATH. You may need to restart your terminal." "Yellow"
+                Write-ColorOutput "Continuing with installation..." "Yellow"
+                $uvInstalled = $true  # Assume it's installed, just not in PATH yet
+            }
+        } catch {
+            Write-ColorOutput "Error installing uv: $_" "Red"
+            Write-ColorOutput "You may need to install uv manually from https://github.com/astral-sh/uv" "Yellow"
+        }
+    }
+
+    # Install Python 3.11 using uv
+    if ($uvInstalled -or (Test-CommandExists "uv")) {
+        # Refresh PATH to ensure uv is available
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+
+        # Wait a moment for PATH to propagate
+        Start-Sleep -Seconds 2
+
+        # Check if Python 3.11 is already installed via uv
+        $python311Installed = $false
+        try {
+            if (Test-CommandExists "uv") {
+                # Check installed Python versions
+                $pythonVersions = uv python list 2>&1 | Out-String
+                if ($pythonVersions -like "*3.11*") {
+                    Write-ColorOutput "Python 3.11 is already installed via uv." "Green"
+                    $python311Installed = $true
+                }
+            }
+        } catch {
+            # If uv command fails, we'll try to install
+        }
+
+        if (-not $python311Installed) {
+            Write-ColorOutput "Installing Python 3.11 via uv..." "Yellow"
+            try {
+                if (Test-CommandExists "uv") {
+                    # Install Python 3.11 (uv will install the latest 3.11.x version)
+                    $installResult = uv python install 3.11 2>&1 | Out-String
+
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-ColorOutput "Python 3.11 installed successfully via uv!" "Green"
+
+                        # Pin Python 3.11 as the default version
+                        uv python pin 3.11 2>&1 | Out-Null
+                        Write-ColorOutput "Python 3.11 set as default version." "Green"
+
+                        # Refresh PATH again
+                        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+
+                        # Verify installation
+                        Start-Sleep -Seconds 2
+                        if (Test-CommandExists "python") {
+                            $pythonVersion = python --version 2>&1
+                            Write-ColorOutput "Python version: $pythonVersion" "Gray"
+                        } else {
+                            Write-ColorOutput "Note: Python installed via uv. Use 'uv python pin 3.11' or 'uv run python' to use it." "Yellow"
+                        }
+                    } else {
+                        Write-ColorOutput "Failed to install Python 3.11 via uv. Exit code: $LASTEXITCODE" "Red"
+                        Write-ColorOutput "Output: $installResult" "Yellow"
+                    }
+                } else {
+                    Write-ColorOutput "uv is not available in PATH. You may need to restart your terminal." "Yellow"
+                }
+            } catch {
+                Write-ColorOutput "Error installing Python 3.11 via uv: $_" "Red"
+                Write-ColorOutput "You may need to install Python manually or restart your terminal and try again." "Yellow"
+            }
+        } else {
+            # Python 3.11 is installed, verify it's pinned
+            try {
+                if (Test-CommandExists "uv") {
+                    $pinnedVersion = uv python pin 2>&1 | Out-String
+                    if ($pinnedVersion -notlike "*3.11*") {
+                        Write-ColorOutput "Setting Python 3.11 as default version..." "Yellow"
+                        uv python pin 3.11 2>&1 | Out-Null
+                        Write-ColorOutput "Python 3.11 set as default version." "Green"
+                    }
+                }
+            } catch {
+                Write-ColorOutput "Could not verify Python 3.11 default version setting." "Yellow"
+            }
+        }
+    } else {
+        Write-ColorOutput "uv is not available. Python 3.11 installation skipped." "Yellow"
+        Write-ColorOutput "You can install Python manually or install uv and run this script again." "Yellow"
+    }
+} catch {
+    Write-ColorOutput "Error during uv and Python setup: $_" "Red"
+    Write-ColorOutput "Continuing with installation..." "Yellow"
+}
+Write-Host ""
+
 # Step: Install IDEs
 $stepNumber++
 Write-ColorOutput "Step ${stepNumber}: Installing IDEs..." "Cyan"
@@ -2429,108 +2654,6 @@ try {
 }
 Write-Host ""
 
-# Step: Install MCP dependencies (if needed)
-$stepNumber++
-Write-ColorOutput "Step ${stepNumber}: Checking for nvm and Node.js..." "Cyan"
-try {
-    # Check if nvm is installed
-    $nvmInstalled = $false
-    if (Test-CommandExists "nvm") {
-        Write-ColorOutput "nvm (Node Version Manager) is already installed." "Green"
-        $nvmInstalled = $true
-    } else {
-        Write-ColorOutput "Installing nvm-windows (Node Version Manager)..." "Yellow"
-        $nvmInstalled = Install-WithWinget "CoreyButler.NVMforWindows" "nvm-windows"
-
-        if ($nvmInstalled) {
-            # Refresh PATH to include nvm
-            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-
-            # Wait a moment for PATH to propagate
-            Start-Sleep -Seconds 2
-
-            # Verify nvm is now available
-            if (Test-CommandExists "nvm") {
-                Write-ColorOutput "nvm-windows installed successfully!" "Green"
-            } else {
-                Write-ColorOutput "Warning: nvm installed but not yet available in PATH. You may need to restart your terminal." "Yellow"
-                Write-ColorOutput "Continuing with installation..." "Yellow"
-            }
-        }
-    }
-
-    # Install Node.js LTS using nvm
-    if ($nvmInstalled -or (Test-CommandExists "nvm")) {
-        # Check if Node.js is already installed via nvm
-        if (Test-CommandExists "node") {
-            $nodeVersion = node --version
-            Write-ColorOutput "Node.js is already installed: $nodeVersion" "Green"
-        } else {
-            Write-ColorOutput "Installing Node.js LTS via nvm..." "Yellow"
-            try {
-                # Use nvm to install the latest LTS version
-                $nvmOutput = nvm install lts 2>&1 | Out-String
-                if ($LASTEXITCODE -eq 0) {
-                    # Extract version number from output if available, otherwise try to use 'lts'
-                    $versionMatch = [regex]::Match($nvmOutput, 'v(\d+\.\d+\.\d+)')
-                    if ($versionMatch.Success) {
-                        $installedVersion = $versionMatch.Groups[1].Value
-                        nvm use $installedVersion | Out-Null
-                        Write-ColorOutput "Node.js LTS installed successfully! (v$installedVersion)" "Green"
-                    } else {
-                        # Try using 'lts' as alias, or list and use the latest installed version
-                        nvm use lts 2>&1 | Out-Null
-                        if ($LASTEXITCODE -ne 0) {
-                            # List installed versions and use the latest
-                            $installedVersions = nvm list | Select-String -Pattern 'v\d+\.\d+\.\d+' | ForEach-Object { $_.Matches.Value }
-                            if ($installedVersions.Count -gt 0) {
-                                $latestVersion = $installedVersions[0] -replace 'v', ''
-                                nvm use $latestVersion | Out-Null
-                                Write-ColorOutput "Node.js LTS installed successfully! (v$latestVersion)" "Green"
-                            } else {
-                                Write-ColorOutput "Node.js LTS installed, but could not determine version" "Yellow"
-                            }
-                        } else {
-                            Write-ColorOutput "Node.js LTS installed successfully!" "Green"
-                        }
-                    }
-
-                    # Refresh PATH again after nvm install
-                    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-
-                    # Verify installation
-                    Start-Sleep -Seconds 2
-                    if (Test-CommandExists "node") {
-                        $nodeVersion = node --version
-                        $npmVersion = npm --version
-                        Write-ColorOutput "Node.js version: $nodeVersion" "Gray"
-                        Write-ColorOutput "npm version: $npmVersion" "Gray"
-                    } else {
-                        Write-ColorOutput "Warning: Node.js installed but not yet available in PATH. You may need to restart your terminal." "Yellow"
-                    }
-                } else {
-                    Write-ColorOutput "Failed to install Node.js via nvm. Exit code: $LASTEXITCODE" "Red"
-                    Write-ColorOutput "Output: $nvmOutput" "Yellow"
-                }
-            } catch {
-                Write-ColorOutput "Error installing Node.js via nvm: $_" "Red"
-            }
-        }
-    } else {
-        Write-ColorOutput "nvm is not available. Falling back to direct Node.js installation..." "Yellow"
-        if (-not (Test-CommandExists "node")) {
-            Install-WithWinget "OpenJS.NodeJS.LTS" "Node.js LTS"
-        } else {
-            $nodeVersion = node --version
-            Write-ColorOutput "Node.js is already installed: $nodeVersion" "Green"
-        }
-    }
-} catch {
-    Write-ColorOutput "Error during MCP dependencies setup: $_" "Red"
-    Write-ColorOutput "Continuing with installation..." "Yellow"
-}
-Write-Host ""
-
 # Step: Install Godot
 $stepNumber++
 Write-ColorOutput "Step ${stepNumber}: Installing Godot Game Engine..." "Cyan"
@@ -2706,149 +2829,12 @@ try {
 }
 Write-Host ""
 
-# Step: Install uv and Python 3.11
-$stepNumber++
-Write-ColorOutput "Step ${stepNumber}: Installing uv and Python 3.11..." "Cyan"
-try {
-    # Check if uv is already installed
-    $uvInstalled = $false
-    if (Test-CommandExists "uv") {
-        Write-ColorOutput "uv is already installed." "Green"
-        $uvVersion = uv --version 2>&1
-        Write-ColorOutput "Current version: $uvVersion" "Gray"
-        $uvInstalled = $true
-    } else {
-        Write-ColorOutput "Installing uv..." "Yellow"
-        try {
-            # Install uv using the official installer script
-            # Using the standard uv installation pattern: Invoke-RestMethod pipes to Invoke-Expression
-            Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression
-
-            # Refresh PATH to include uv
-            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-
-            # Wait a moment for PATH to propagate
-            Start-Sleep -Seconds 2
-
-            # Verify uv is now available
-            if (Test-CommandExists "uv") {
-                Write-ColorOutput "uv installed successfully!" "Green"
-                $uvInstalled = $true
-            } else {
-                Write-ColorOutput "Warning: uv installed but not yet available in PATH. You may need to restart your terminal." "Yellow"
-                Write-ColorOutput "Continuing with installation..." "Yellow"
-                $uvInstalled = $true  # Assume it's installed, just not in PATH yet
-            }
-        } catch {
-            Write-ColorOutput "Error installing uv: $_" "Red"
-            Write-ColorOutput "You may need to install uv manually from https://github.com/astral-sh/uv" "Yellow"
-        }
-    }
-
-    # Install Python 3.11 using uv
-    if ($uvInstalled -or (Test-CommandExists "uv")) {
-        # Refresh PATH to ensure uv is available
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-
-        # Wait a moment for PATH to propagate
-        Start-Sleep -Seconds 2
-
-        # Check if Python 3.11 is already installed via uv
-        $python311Installed = $false
-        try {
-            if (Test-CommandExists "uv") {
-                # Check installed Python versions
-                $pythonVersions = uv python list 2>&1 | Out-String
-                if ($pythonVersions -like "*3.11*") {
-                    Write-ColorOutput "Python 3.11 is already installed via uv." "Green"
-                    $python311Installed = $true
-                }
-            }
-        } catch {
-            # If uv command fails, we'll try to install
-        }
-
-        if (-not $python311Installed) {
-            Write-ColorOutput "Installing Python 3.11 via uv..." "Yellow"
-            try {
-                if (Test-CommandExists "uv") {
-                    # Install Python 3.11 (uv will install the latest 3.11.x version)
-                    $installResult = uv python install 3.11 2>&1 | Out-String
-
-                    if ($LASTEXITCODE -eq 0) {
-                        Write-ColorOutput "Python 3.11 installed successfully via uv!" "Green"
-
-                        # Pin Python 3.11 as the default version
-                        uv python pin 3.11 2>&1 | Out-Null
-                        Write-ColorOutput "Python 3.11 set as default version." "Green"
-
-                        # Refresh PATH again
-                        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-
-                        # Verify installation
-                        Start-Sleep -Seconds 2
-                        if (Test-CommandExists "python") {
-                            $pythonVersion = python --version 2>&1
-                            Write-ColorOutput "Python version: $pythonVersion" "Gray"
-                        } else {
-                            Write-ColorOutput "Note: Python installed via uv. Use 'uv python pin 3.11' or 'uv run python' to use it." "Yellow"
-                        }
-                    } else {
-                        Write-ColorOutput "Failed to install Python 3.11 via uv. Exit code: $LASTEXITCODE" "Red"
-                        Write-ColorOutput "Output: $installResult" "Yellow"
-                    }
-                } else {
-                    Write-ColorOutput "uv is not available in PATH. You may need to restart your terminal." "Yellow"
-                }
-            } catch {
-                Write-ColorOutput "Error installing Python 3.11 via uv: $_" "Red"
-                Write-ColorOutput "You may need to install Python manually or restart your terminal and try again." "Yellow"
-            }
-        } else {
-            # Python 3.11 is installed, verify it's pinned
-            try {
-                if (Test-CommandExists "uv") {
-                    $pinnedVersion = uv python pin 2>&1 | Out-String
-                    if ($pinnedVersion -notlike "*3.11*") {
-                        Write-ColorOutput "Setting Python 3.11 as default version..." "Yellow"
-                        uv python pin 3.11 2>&1 | Out-Null
-                        Write-ColorOutput "Python 3.11 set as default version." "Green"
-                    }
-                }
-            } catch {
-                Write-ColorOutput "Could not verify Python 3.11 default version setting." "Yellow"
-            }
-        }
-    } else {
-        Write-ColorOutput "uv is not available. Python 3.11 installation skipped." "Yellow"
-        Write-ColorOutput "You can install Python manually or install uv and run this script again." "Yellow"
-    }
-} catch {
-    Write-ColorOutput "Error during uv and Python setup: $_" "Red"
-    Write-ColorOutput "Continuing with installation..." "Yellow"
-}
-Write-Host ""
-
 # Step: Final setup instructions
 $stepNumber++
 Write-ColorOutput "============================================" "Cyan"
 Write-ColorOutput "Setup Complete!" "Green"
 Write-ColorOutput "============================================" "Cyan"
 Write-Host ""
-
-Write-ColorOutput "Next Steps:" "Yellow"
-Write-ColorOutput "1. Open Cursor from the Start Menu or Desktop" "White"
-Write-ColorOutput "2. Open the cloned repository folder: $CloneDirectory" "White"
-Write-ColorOutput "3. Review the .cursor folder for rules and configuration" "White"
-Write-ColorOutput "4. Install any additional MCP servers as needed" "White"
-Write-ColorOutput "5. Godot is available at 'C:\Program Files\Godot\Godot.exe' or from the desktop shortcut" "White"
-Write-ColorOutput "6. Run 'claude' in your terminal to start Claude Code and authenticate" "White"
-Write-ColorOutput "7. If uv/Python was just installed, restart your terminal for PATH changes to take effect" "White"
-Write-ColorOutput "8. A template for creating Unity games is available as a template project at https://github.com/prophecygamestudio/unity-template.git" "White"
-Write-Host ""
-
-Write-ColorOutput "Setup complete!" "Green"
-
 # Wait for user input unless -NoWait flag is set
 if (-not $NoWait) {
     Write-Host ""
