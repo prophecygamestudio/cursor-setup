@@ -1716,23 +1716,21 @@ function Merge-ClaudeCodeConfig {
         }
 
         # Convert new MCP config to JSON for yq to process
+        # All configured servers will be added/updated (overwriting existing by name)
         $newMcpServers = $NewMcpConfig.mcpServers
-        $addedCount = 0
         $serversToAdd = @{}
 
         foreach ($serverName in $newMcpServers.Keys) {
             if ($existingServers -contains $serverName) {
-                Write-ColorOutput "  MCP server '$serverName' already exists in Claude Code config, preserving existing configuration" "Yellow"
+                Write-ColorOutput "  Updating MCP server '$serverName' in Claude Code config" "Yellow"
             } else {
-                $serversToAdd[$serverName] = $newMcpServers[$serverName]
-                $addedCount++
+                Write-ColorOutput "  Adding MCP server '$serverName' to Claude Code config" "Green"
             }
+            $serversToAdd[$serverName] = $newMcpServers[$serverName]
         }
 
-        if ($addedCount -eq 0) {
-            if ($newMcpServers.Count -gt 0) {
-                Write-ColorOutput "All required MCP servers are already configured in Claude Code" "Green"
-            }
+        if ($serversToAdd.Count -eq 0) {
+            Write-ColorOutput "No MCP servers to configure for Claude Code" "Gray"
             return $true
         }
 
@@ -1836,23 +1834,21 @@ function Merge-AntigravityConfig {
         }
 
         # Convert new MCP config to JSON for yq to process
+        # All configured servers will be added/updated (overwriting existing by name)
         $newMcpServers = $NewMcpConfig.mcpServers
-        $addedCount = 0
         $serversToAdd = @{}
 
         foreach ($serverName in $newMcpServers.Keys) {
             if ($existingServers -contains $serverName) {
-                Write-ColorOutput "  MCP server '$serverName' already exists in Antigravity config, preserving existing configuration" "Yellow"
+                Write-ColorOutput "  Updating MCP server '$serverName' in Antigravity config" "Yellow"
             } else {
-                $serversToAdd[$serverName] = $newMcpServers[$serverName]
-                $addedCount++
+                Write-ColorOutput "  Adding MCP server '$serverName' to Antigravity config" "Green"
             }
+            $serversToAdd[$serverName] = $newMcpServers[$serverName]
         }
 
-        if ($addedCount -eq 0) {
-            if ($newMcpServers.Count -gt 0) {
-                Write-ColorOutput "All required MCP servers are already configured in Antigravity" "Green"
-            }
+        if ($serversToAdd.Count -eq 0) {
+            Write-ColorOutput "No MCP servers to configure for Antigravity" "Gray"
             return $true
         }
 
@@ -1956,23 +1952,21 @@ function Merge-ClaudeDesktopConfig {
         }
 
         # Convert new MCP config to JSON for yq to process
+        # All configured servers will be added/updated (overwriting existing by name)
         $newMcpServers = $NewMcpConfig.mcpServers
-        $addedCount = 0
         $serversToAdd = @{}
 
         foreach ($serverName in $newMcpServers.Keys) {
             if ($existingServers -contains $serverName) {
-                Write-ColorOutput "  MCP server '$serverName' already exists in Claude Desktop config, preserving existing configuration" "Yellow"
+                Write-ColorOutput "  Updating MCP server '$serverName' in Claude Desktop config" "Yellow"
             } else {
-                $serversToAdd[$serverName] = $newMcpServers[$serverName]
-                $addedCount++
+                Write-ColorOutput "  Adding MCP server '$serverName' to Claude Desktop config" "Green"
             }
+            $serversToAdd[$serverName] = $newMcpServers[$serverName]
         }
 
-        if ($addedCount -eq 0) {
-            if ($newMcpServers.Count -gt 0) {
-                Write-ColorOutput "All required MCP servers are already configured in Claude Desktop" "Green"
-            }
+        if ($serversToAdd.Count -eq 0) {
+            Write-ColorOutput "No MCP servers to configure for Claude Desktop" "Gray"
             return $true
         }
 
@@ -2224,19 +2218,13 @@ function Merge-CodexTomlConfig {
             }
         }
 
-        # Check which servers are new
-        $addedCount = 0
+        # Report which servers will be added/updated (all configured servers are written)
         foreach ($serverName in $newServerNames) {
             if (-not $existingMcpServers.PSObject.Properties.Name.Contains($serverName)) {
-                $addedCount++
                 Write-ColorOutput "  Adding MCP server to Codex: $serverName" "Green"
             } else {
-                Write-ColorOutput "  MCP server '$serverName' already exists in Codex config, preserving existing configuration" "Yellow"
+                Write-ColorOutput "  Updating MCP server in Codex: $serverName" "Yellow"
             }
-        }
-
-        if ($addedCount -eq 0) {
-            Write-ColorOutput "All required MCP servers are already configured in Codex" "Green"
         }
 
         # Merge TOML content
@@ -2458,20 +2446,16 @@ function Merge-MCPConfig {
         try {
             $newContent = Get-Content $NewConfigPath -Raw | ConvertFrom-Json
             if ($newContent.mcpServers) {
-                $addedCount = 0
+                # All configured servers will be added/updated (overwriting existing by name)
                 foreach ($serverName in $newContent.mcpServers.PSObject.Properties.Name) {
-                    if (-not $mergedServers.ContainsKey($serverName)) {
-                        # Normalize paths before adding
-                        $normalizedConfig = Convert-MCPPaths -McpServerConfig $newContent.mcpServers.$serverName
-                        $mergedServers[$serverName] = $normalizedConfig
-                        $addedCount++
-                        Write-ColorOutput "  Added MCP server: $serverName" "Green"
+                    # Normalize paths before adding
+                    $normalizedConfig = Convert-MCPPaths -McpServerConfig $newContent.mcpServers.$serverName
+                    if ($mergedServers.ContainsKey($serverName)) {
+                        Write-ColorOutput "  Updating MCP server: $serverName" "Yellow"
                     } else {
-                        Write-ColorOutput "  MCP server '$serverName' already exists, preserving existing configuration" "Yellow"
+                        Write-ColorOutput "  Adding MCP server: $serverName" "Green"
                     }
-                }
-                if ($addedCount -eq 0) {
-                    Write-ColorOutput "All required MCP servers are already configured" "Green"
+                    $mergedServers[$serverName] = $normalizedConfig
                 }
             }
         } catch {
